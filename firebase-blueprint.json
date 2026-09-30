@@ -1,0 +1,278 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Customer profile and authentication record",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "loyaltyPoints": { "type": "number" },
+        "referralCode": { "type": "string", "maxLength": 30 },
+        "referredBy": { "type": "string", "maxLength": 30 },
+        "phoneVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "name"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Salon appointment reservation",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "maxLength": 40 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 20 },
+        "customerEmail": { "type": "string", "maxLength": 150 },
+        "serviceIds": { "type": "array" },
+        "services": { "type": "array" },
+        "stylistId": { "type": "string", "maxLength": 100 },
+        "stylistName": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 20 },
+        "slot": { "type": "string", "maxLength": 50 },
+        "slotKey": { "type": "string", "maxLength": 100 },
+        "poolType": { "type": "string", "maxLength": 20 },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "couponCode": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "history": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["bookingId", "customerName", "customerPhone", "date", "slot", "status"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Salon service offering",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "category": { "type": "string", "maxLength": 80 },
+        "price": { "type": "number" },
+        "priceLabel": { "type": "string", "maxLength": 50 },
+        "offerPrice": { "type": "number" },
+        "note": { "type": "string", "maxLength": 200 },
+        "image": { "type": "string", "maxLength": 500 },
+        "isHaircut": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["name", "category", "active"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Category heading for grouping services",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 80 },
+        "sortOrder": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer salon review and ratings",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "maxLength": 40 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "ratingService": { "type": "number" },
+        "ratingStaff": { "type": "number" },
+        "ratingValue": { "type": "number" },
+        "ratingCleanliness": { "type": "number" },
+        "averageRating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "maxLength": 20 },
+        "adminReply": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["customerName", "averageRating", "comment", "status"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Salon stylist or staff member",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "role": { "type": "string", "maxLength": 60 },
+        "salary": { "type": "number" },
+        "dateJoined": { "type": "string", "maxLength": 30 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "maxLength": 20 },
+        "totalPaid": { "type": "number" }
+      },
+      "required": ["name", "status"]
+    },
+    "SalaryPayment": {
+      "title": "SalaryPayment",
+      "description": "Staff salary disbursement record",
+      "type": "object",
+      "properties": {
+        "staffId": { "type": "string", "maxLength": 60 },
+        "staffName": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 30 },
+        "month": { "type": "string", "maxLength": 30 },
+        "amount": { "type": "number" },
+        "mode": { "type": "string", "maxLength": 40 },
+        "note": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["staffId", "amount", "date", "month"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Discount coupon voucher",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 40 },
+        "discountType": { "type": "string", "maxLength": 20 },
+        "value": { "type": "number" },
+        "maxCap": { "type": "number" },
+        "minBill": { "type": "number" },
+        "applicableServices": { "type": "array" },
+        "startDate": { "type": "string", "maxLength": 30 },
+        "endDate": { "type": "string", "maxLength": 30 },
+        "totalLimit": { "type": "number" },
+        "usedCount": { "type": "number" },
+        "perCustomerLimit": { "type": "number" },
+        "terms": { "type": "string", "maxLength": 500 },
+        "active": { "type": "boolean" }
+      },
+      "required": ["code", "discountType", "value", "active"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "Salon portfolio photo or video item",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 40 },
+        "type": { "type": "string", "maxLength": 20 },
+        "url": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["title", "category", "type", "url"]
+    },
+    "SlotUsage": {
+      "title": "SlotUsage",
+      "description": "Real-time reservation counts per slot",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 20 },
+        "slot": { "type": "string", "maxLength": 50 },
+        "haircutCount": { "type": "number" },
+        "otherCount": { "type": "number" }
+      },
+      "required": ["date", "slot"]
+    },
+    "Waitlist": {
+      "title": "Waitlist",
+      "description": "Customer waitlist entry for closed slot",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "maxLength": 20 },
+        "slot": { "type": "string", "maxLength": 50 },
+        "poolType": { "type": "string", "maxLength": 20 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 20 },
+        "customerEmail": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["date", "slot", "customerName", "customerPhone"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Salon operational settings and configuration",
+      "type": "object",
+      "properties": {
+        "haircutCapacity": { "type": "number" },
+        "otherCapacity": { "type": "number" },
+        "cancellationHours": { "type": "number" },
+        "offerBannerText": { "type": "string", "maxLength": 200 },
+        "offerStartDate": { "type": "string", "maxLength": 30 },
+        "offerEndDate": { "type": "string", "maxLength": 30 },
+        "offerBannerActive": { "type": "boolean" },
+        "blockedDates": { "type": "array" },
+        "googlePlaceId": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "address": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "AdminAuth": {
+      "title": "AdminAuth",
+      "description": "Salted hashed admin credentials and security question",
+      "type": "object",
+      "properties": {
+        "usernameHash": { "type": "string", "maxLength": 128 },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "salt": { "type": "string", "maxLength": 128 },
+        "securityQuestion": { "type": "string", "maxLength": 100 },
+        "securityAnswerHash": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["usernameHash", "passwordHash", "salt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Salon bookings"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Service menu items"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Service categories"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Customer reviews"
+    },
+    "/staff/{staffId}": {
+      "schema": "Staff",
+      "description": "Staff roster"
+    },
+    "/salaryPayments/{paymentId}": {
+      "schema": "SalaryPayment",
+      "description": "Disbursed staff salary records"
+    },
+    "/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Discount promo codes"
+    },
+    "/gallery/{galleryId}": {
+      "schema": "GalleryItem",
+      "description": "Salon portfolio media"
+    },
+    "/slotUsage/{slotUsageId}": {
+      "schema": "SlotUsage",
+      "description": "Live slot pool usage tallies"
+    },
+    "/waitlist/{waitlistId}": {
+      "schema": "Waitlist",
+      "description": "Waitlist entries"
+    },
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Operational salon parameters"
+    },
+    "/adminAuth/{authId}": {
+      "schema": "AdminAuth",
+      "description": "Admin hash authentication credentials"
+    }
+  }
+}
