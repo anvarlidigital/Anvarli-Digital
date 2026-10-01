@@ -2917,7 +2917,7 @@ const AdminBookingsManager: React.FC<{
                     const sqlCode = `-- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Table with exact CSV headers matching exported spreadsheet
+-- 1. Table matching all 14 CSV spreadsheet columns exactly
 CREATE TABLE IF NOT EXISTS public.appointments (
     "Booking ID" TEXT PRIMARY KEY,
     "Date" TEXT,
@@ -2927,9 +2927,9 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     "Email" TEXT,
     "Services" TEXT,
     "Stylist" TEXT,
-    "Subtotal" NUMERIC DEFAULT 0,
-    "Discount" NUMERIC DEFAULT 0,
-    "Total Amount" NUMERIC DEFAULT 0,
+    "Subtotal" TEXT DEFAULT '0',
+    "Discount" TEXT DEFAULT '0',
+    "Total Amount" TEXT DEFAULT '0',
     "Status" TEXT DEFAULT 'Confirmed',
     "Pool" TEXT DEFAULT 'Salon Care',
     "Created At" TEXT
@@ -2945,9 +2945,9 @@ ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Phone" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Email" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Services" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Stylist" TEXT;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" NUMERIC DEFAULT 0;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" NUMERIC DEFAULT 0;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" TEXT DEFAULT '0';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" TEXT DEFAULT '0';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" TEXT DEFAULT '0';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Status" TEXT DEFAULT 'Confirmed';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Pool" TEXT DEFAULT 'Salon Care';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Created At" TEXT;
@@ -2983,7 +2983,7 @@ END $$;`;
 {`-- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Table with exact CSV headers matching exported spreadsheet
+-- 1. Table matching all 14 CSV spreadsheet columns exactly
 CREATE TABLE IF NOT EXISTS public.appointments (
     "Booking ID" TEXT PRIMARY KEY,
     "Date" TEXT,
@@ -2993,9 +2993,9 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     "Email" TEXT,
     "Services" TEXT,
     "Stylist" TEXT,
-    "Subtotal" NUMERIC DEFAULT 0,
-    "Discount" NUMERIC DEFAULT 0,
-    "Total Amount" NUMERIC DEFAULT 0,
+    "Subtotal" TEXT DEFAULT '0',
+    "Discount" TEXT DEFAULT '0',
+    "Total Amount" TEXT DEFAULT '0',
     "Status" TEXT DEFAULT 'Confirmed',
     "Pool" TEXT DEFAULT 'Salon Care',
     "Created At" TEXT
@@ -3011,9 +3011,9 @@ ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Phone" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Email" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Services" TEXT;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Stylist" TEXT;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" NUMERIC DEFAULT 0;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" NUMERIC DEFAULT 0;
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" TEXT DEFAULT '0';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" TEXT DEFAULT '0';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" TEXT DEFAULT '0';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Status" TEXT DEFAULT 'Confirmed';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Pool" TEXT DEFAULT 'Salon Care';
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Created At" TEXT;
