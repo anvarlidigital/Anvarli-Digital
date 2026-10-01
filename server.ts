@@ -1,7 +1,8 @@
 import express from 'express';
+import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import sendSmsHandler from './api/send-sms';
+import sendSmsHandler from './api/send-sms.ts';
 
 dotenv.config();
 
@@ -33,16 +34,23 @@ async function startServer() {
     });
   });
 
-  // Vite development middleware for SPA frontend
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-
-  app.use(vite.middlewares);
+  // Serve SPA in production or Vite middleware in development
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static('dist'));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
+    });
+  } else {
+    // Vite development middleware for SPA frontend
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[Trim & Twisted] Server running on port ${port} (Vite SPA + /api/send-sms)`);
+    console.log(`[Trim & Twisted] Server running on port ${port} (0.0.0.0)`);
   });
 }
 
@@ -50,3 +58,4 @@ startServer().catch((err) => {
   console.error('[Trim & Twisted] Failed to start server:', err);
   process.exit(1);
 });
+
