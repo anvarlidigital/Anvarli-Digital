@@ -3126,9 +3126,15 @@ const AdminReviewsManager: React.FC<{
 /* =========================================================================
    SUB-COMPONENT 9: CUSTOMERS DIRECTORY & HISTORY
    ========================================================================= */
-const AdminCustomersManager: React.FC<{ bookings: BookingItem[] }> = ({ bookings }) => {
-  // Aggregate unique customers
-  const customers = useMemo(() => {
+const AdminCustomersManager: React.FC<{
+  bookings: BookingItem[];
+  users?: UserProfile[];
+}> = ({ bookings, users = [] }) => {
+  const [viewMode, setViewMode] = useState<'bookings' | 'registered'>('bookings');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Aggregate unique customers from bookings
+  const bookingCustomers = useMemo(() => {
     const map = new Map<string, { name: string; phone: string; email: string; visits: number; totalSpent: number }>();
     bookings.forEach((b) => {
       const key = b.customerPhone || b.customerName;
@@ -3150,39 +3156,550 @@ const AdminCustomersManager: React.FC<{ bookings: BookingItem[] }> = ({ bookings
     return Array.from(map.values());
   }, [bookings]);
 
+  const filteredBookingCustomers = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return bookingCustomers;
+    return bookingCustomers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.phone.toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q)
+    );
+  }, [bookingCustomers, searchQuery]);
+
+  const filteredRegisteredUsers = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.phone && u.phone.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.referralCode && u.referralCode.toLowerCase().includes(q))
+    );
+  }, [users, searchQuery]);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="font-['Cinzel'] text-xl font-bold text-white">Customer Directory</h3>
-        <p className="text-xs text-gray-400">Patron visits, phone contact, and spending records.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-['Cinzel'] text-xl font-bold text-white">Customer Directory & User Accounts</h3>
+          <p className="text-xs text-gray-400">Patron visits, phone contact, registered member profiles, and spending records.</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex bg-[#070B14] p-1 rounded-xl border border-white/10">
+            <button
+              type="button"
+              onClick={() => setViewMode('bookings')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === 'bookings'
+                  ? 'bg-[#D4AF37] text-[#070B14] font-bold shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Booking Clients ({bookingCustomers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('registered')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === 'registered'
+                  ? 'bg-[#D4AF37] text-[#070B14] font-bold shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Registered Users ({users.length})
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14]">
-        <table className="w-full text-left text-xs text-gray-300">
-          <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
-            <tr>
-              <th className="py-3 px-4">Customer Name</th>
-              <th className="py-3 px-4">Phone</th>
-              <th className="py-3 px-4">Email</th>
-              <th className="py-3 px-4">Total Visits</th>
-              <th className="py-3 px-4 text-right">Lifetime Spent</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {customers.map((c) => (
-              <tr key={c.phone} className="hover:bg-white/5">
-                <td className="py-3 px-4 font-semibold text-white">{c.name}</td>
-                <td className="py-3 px-4 font-mono">{c.phone}</td>
-                <td className="py-3 px-4">{c.email}</td>
-                <td className="py-3 px-4 font-mono">{c.visits} visit(s)</td>
-                <td className="py-3 px-4 font-mono font-bold text-[#FFDF78] text-right">
-                  ₹{c.totalSpent}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search Input */}
+      <div className="relative max-w-md">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Search by name, phone, or email..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-[#070B14] border border-[#D4AF37]/30 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
+        />
       </div>
+
+      {viewMode === 'bookings' ? (
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14]">
+          <table className="w-full text-left text-xs text-gray-300">
+            <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
+              <tr>
+                <th className="py-3 px-4">Customer Name</th>
+                <th className="py-3 px-4">Phone</th>
+                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-4">Total Visits</th>
+                <th className="py-3 px-4 text-right">Lifetime Spent</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {filteredBookingCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-gray-500">
+                    No customers found matching filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredBookingCustomers.map((c) => (
+                  <tr key={c.phone || c.name} className="hover:bg-white/5">
+                    <td className="py-3 px-4 font-semibold text-white">{c.name}</td>
+                    <td className="py-3 px-4 font-mono">{c.phone}</td>
+                    <td className="py-3 px-4">{c.email}</td>
+                    <td className="py-3 px-4 font-mono">{c.visits} visit(s)</td>
+                    <td className="py-3 px-4 font-mono font-bold text-[#FFDF78] text-right">
+                      ₹{c.totalSpent}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14]">
+          <table className="w-full text-left text-xs text-gray-300">
+            <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
+              <tr>
+                <th className="py-3 px-4">User</th>
+                <th className="py-3 px-4">Mobile</th>
+                <th className="py-3 px-4">Role</th>
+                <th className="py-3 px-4">Loyalty Points</th>
+                <th className="py-3 px-4">Referral Code</th>
+                <th className="py-3 px-4">Joined Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {filteredRegisteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-gray-500">
+                    No registered user accounts found.
+                  </td>
+                </tr>
+              ) : (
+                filteredRegisteredUsers.map((u) => (
+                  <tr key={u.uid} className="hover:bg-white/5">
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-white">{u.name || 'Anonymous User'}</div>
+                      <div className="text-[11px] text-gray-400">{u.email}</div>
+                    </td>
+                    <td className="py-3 px-4 font-mono">
+                      <span>{u.phone || 'N/A'}</span>
+                      {u.phoneVerified && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-500/30">
+                          Verified
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                        u.role === 'admin' || u.isAdmin ? 'bg-amber-950 text-amber-300 border border-amber-500/40' : 'bg-gray-800 text-gray-300'
+                      }`}>
+                        {u.role === 'admin' || u.isAdmin ? 'Admin' : 'Customer'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-mono font-bold text-[#FFDF78]">
+                      {u.loyaltyPoints || 0} pts
+                    </td>
+                    <td className="py-3 px-4 font-mono text-gray-300">
+                      {u.referralCode || '—'}
+                    </td>
+                    <td className="py-3 px-4 text-gray-400 font-mono text-[11px]">
+                      {u.createdAt ? u.createdAt.slice(0, 10) : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* =========================================================================
+   SUB-COMPONENT 9.5: SUPABASE SQL CONNECTOR & EXPORT MANAGER
+   ========================================================================= */
+const AdminSupabaseManager: React.FC<{
+  bookings: BookingItem[];
+  users: UserProfile[];
+  services: ServiceItem[];
+  staff: StaffItem[];
+}> = ({ bookings, users, services, staff }) => {
+  const [supabaseUrl, setSupabaseUrl] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_url') || '' : '';
+  });
+  const [supabaseKey, setSupabaseKey] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_key') || '' : '';
+  });
+  const [pingStatus, setPingStatus] = useState<string | null>(null);
+  const [pingLoading, setPingLoading] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [activeTab, setActiveTab] = useState<'sql' | 'config' | 'export'>('sql');
+
+  // Save configuration
+  const handleSaveConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    localStorage.setItem('tt_supabase_url', supabaseUrl.trim());
+    localStorage.setItem('tt_supabase_key', supabaseKey.trim());
+    setPingStatus('Config saved to local browser storage.');
+  };
+
+  // Test Supabase REST connectivity
+  const handleTestConnection = async () => {
+    if (!supabaseUrl) {
+      setPingStatus('Please enter a Supabase Project URL first.');
+      return;
+    }
+    setPingLoading(true);
+    setPingStatus(null);
+    try {
+      const cleanUrl = supabaseUrl.replace(/\/+$/, '');
+      const res = await fetch(`${cleanUrl}/rest/v1/`, {
+        headers: {
+          apikey: supabaseKey.trim() || 'anon',
+          Authorization: `Bearer ${supabaseKey.trim() || 'anon'}`,
+        },
+      });
+      if (res.ok || res.status === 401 || res.status === 200) {
+        setPingStatus(`Supabase endpoint reachable! (Status: ${res.status})`);
+      } else {
+        setPingStatus(`Supabase responded with HTTP ${res.status}: ${res.statusText}`);
+      }
+    } catch (err: any) {
+      setPingStatus(`Connection test error: ${err?.message || 'Check URL / CORS settings'}`);
+    } finally {
+      setPingLoading(false);
+    }
+  };
+
+  // Generate complete PostgreSQL SQL schema and insert scripts
+  const generatedSql = useMemo(() => {
+    const escapeSql = (str?: string | null) => {
+      if (str === null || str === undefined) return 'NULL';
+      return `'${String(str).replace(/'/g, "''")}'`;
+    };
+
+    let sql = `-- =========================================================================\n`;
+    sql += `-- Trim & Twisted Luxury Unisex Salon - Supabase PostgreSQL Schema & Seed\n`;
+    sql += `-- Generated on ${new Date().toISOString()}\n`;
+    sql += `-- =========================================================================\n\n`;
+
+    // 1. Table Definitions
+    sql += `-- 1. Services Table\n`;
+    sql += `CREATE TABLE IF NOT EXISTS salon_services (\n`;
+    sql += `  id TEXT PRIMARY KEY,\n`;
+    sql += `  name TEXT NOT NULL,\n`;
+    sql += `  category TEXT NOT NULL,\n`;
+    sql += `  price NUMERIC,\n`;
+    sql += `  price_label TEXT,\n`;
+    sql += `  offer_price NUMERIC,\n`;
+    sql += `  is_haircut BOOLEAN DEFAULT false,\n`;
+    sql += `  active BOOLEAN DEFAULT true,\n`;
+    sql += `  sort_order INTEGER DEFAULT 0,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
+
+    sql += `-- 2. Staff Table\n`;
+    sql += `CREATE TABLE IF NOT EXISTS salon_staff (\n`;
+    sql += `  id TEXT PRIMARY KEY,\n`;
+    sql += `  name TEXT NOT NULL,\n`;
+    sql += `  phone TEXT,\n`;
+    sql += `  role TEXT,\n`;
+    sql += `  salary NUMERIC,\n`;
+    sql += `  status TEXT DEFAULT 'Active',\n`;
+    sql += `  photo_url TEXT,\n`;
+    sql += `  date_joined DATE,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
+
+    sql += `-- 3. Users Table\n`;
+    sql += `CREATE TABLE IF NOT EXISTS salon_users (\n`;
+    sql += `  uid TEXT PRIMARY KEY,\n`;
+    sql += `  name TEXT,\n`;
+    sql += `  email TEXT,\n`;
+    sql += `  phone TEXT,\n`;
+    sql += `  loyalty_points INTEGER DEFAULT 0,\n`;
+    sql += `  referral_code TEXT,\n`;
+    sql += `  phone_verified BOOLEAN DEFAULT false,\n`;
+    sql += `  role TEXT DEFAULT 'customer',\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
+
+    sql += `-- 4. Bookings Table\n`;
+    sql += `CREATE TABLE IF NOT EXISTS salon_bookings (\n`;
+    sql += `  id TEXT PRIMARY KEY,\n`;
+    sql += `  booking_id TEXT NOT NULL,\n`;
+    sql += `  customer_name TEXT NOT NULL,\n`;
+    sql += `  customer_phone TEXT NOT NULL,\n`;
+    sql += `  customer_email TEXT,\n`;
+    sql += `  booking_date DATE NOT NULL,\n`;
+    sql += `  slot TEXT NOT NULL,\n`;
+    sql += `  pool_type TEXT DEFAULT 'haircut',\n`;
+    sql += `  status TEXT DEFAULT 'Confirmed',\n`;
+    sql += `  subtotal NUMERIC DEFAULT 0,\n`;
+    sql += `  discount NUMERIC DEFAULT 0,\n`;
+    sql += `  total_amount NUMERIC NOT NULL,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
+
+    // 2. Insert Seeds
+    sql += `-- -------------------------------------------------------------------------\n`;
+    sql += `-- DATA SEED INSERTS\n`;
+    sql += `-- -------------------------------------------------------------------------\n\n`;
+
+    if (services.length > 0) {
+      sql += `-- Services (${services.length} records)\n`;
+      services.forEach((s) => {
+        sql += `INSERT INTO salon_services (id, name, category, price, price_label, offer_price, is_haircut, active, sort_order) VALUES (${escapeSql(s.id)}, ${escapeSql(s.name)}, ${escapeSql(s.category)}, ${s.price ?? 'NULL'}, ${escapeSql(s.priceLabel)}, ${s.offerPrice ?? 'NULL'}, ${s.isHaircut ? 'true' : 'false'}, ${s.active ? 'true' : 'false'}, ${s.sortOrder || 0}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, offer_price = EXCLUDED.offer_price;\n`;
+      });
+      sql += `\n`;
+    }
+
+    if (staff.length > 0) {
+      sql += `-- Staff (${staff.length} records)\n`;
+      staff.forEach((st) => {
+        sql += `INSERT INTO salon_staff (id, name, phone, role, salary, status, photo_url, date_joined) VALUES (${escapeSql(st.id)}, ${escapeSql(st.name)}, ${escapeSql(st.phone)}, ${escapeSql(st.role)}, ${st.salary ?? 'NULL'}, ${escapeSql(st.status || 'Active')}, ${escapeSql(st.photoURL)}, ${escapeSql(st.dateJoined)}) ON CONFLICT (id) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    if (users.length > 0) {
+      sql += `-- Users (${users.length} records)\n`;
+      users.forEach((u) => {
+        sql += `INSERT INTO salon_users (uid, name, email, phone, loyalty_points, referral_code, phone_verified, role) VALUES (${escapeSql(u.uid)}, ${escapeSql(u.name)}, ${escapeSql(u.email)}, ${escapeSql(u.phone)}, ${u.loyaltyPoints || 0}, ${escapeSql(u.referralCode)}, ${u.phoneVerified ? 'true' : 'false'}, ${escapeSql(u.role || 'customer')}) ON CONFLICT (uid) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    if (bookings.length > 0) {
+      sql += `-- Bookings (${bookings.length} records)\n`;
+      bookings.forEach((b) => {
+        sql += `INSERT INTO salon_bookings (id, booking_id, customer_name, customer_phone, customer_email, booking_date, slot, pool_type, status, subtotal, discount, total_amount) VALUES (${escapeSql(b.id || b.bookingId)}, ${escapeSql(b.bookingId)}, ${escapeSql(b.customerName)}, ${escapeSql(b.customerPhone)}, ${escapeSql(b.customerEmail)}, ${escapeSql(b.date)}, ${escapeSql(b.slot)}, ${escapeSql(b.poolType)}, ${escapeSql(b.status)}, ${b.subtotal || 0}, ${b.discount || 0}, ${b.totalAmount || 0}) ON CONFLICT (id) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    return sql;
+  }, [services, staff, users, bookings]);
+
+  // Copy SQL to clipboard
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(generatedSql);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  // Download SQL script file
+  const handleDownloadSql = () => {
+    const blob = new Blob([generatedSql], { type: 'application/sql' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trim_and_twisted_supabase_${new Date().toISOString().slice(0, 10)}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Download JSON full database backup
+  const handleDownloadJsonBackup = () => {
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      salon: 'Trim & Twisted',
+      counts: {
+        bookings: bookings.length,
+        users: users.length,
+        services: services.length,
+        staff: staff.length,
+      },
+      data: {
+        services,
+        staff,
+        users,
+        bookings,
+      },
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trim_and_twisted_data_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-['Cinzel'] text-xl font-bold text-white flex items-center gap-2">
+            <Database className="w-5 h-5 text-[#D4AF37]" />
+            <span>Supabase SQL Connector & Migration</span>
+          </h3>
+          <p className="text-xs text-gray-400">
+            Export PostgreSQL DDL schemas, generate relational migration scripts, and configure Supabase connectivity.
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCopySql}
+            className="px-3.5 py-2 rounded-xl bg-[#D4AF37] hover:bg-[#FFE082] text-[#070B14] font-bold text-xs flex items-center gap-1.5 transition-all shadow"
+          >
+            {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedSql ? 'Copied SQL!' : 'Copy SQL Script'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadSql}
+            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition-all border border-white/20"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download .sql</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadJsonBackup}
+            className="px-3.5 py-2 rounded-xl bg-blue-950/80 hover:bg-blue-900 border border-blue-500/40 text-blue-300 font-medium text-xs flex items-center gap-1.5 transition-all"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
+            <span>Export JSON</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Database Statistics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
+          <div className="text-[10px] uppercase font-mono text-gray-400">salon_bookings</div>
+          <div className="text-xl font-bold font-mono text-[#FFDF78]">{bookings.length}</div>
+          <div className="text-[11px] text-gray-500">Live booking records</div>
+        </div>
+        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
+          <div className="text-[10px] uppercase font-mono text-gray-400">salon_users</div>
+          <div className="text-xl font-bold font-mono text-white">{users.length}</div>
+          <div className="text-[11px] text-gray-500">Registered member profiles</div>
+        </div>
+        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
+          <div className="text-[10px] uppercase font-mono text-gray-400">salon_services</div>
+          <div className="text-xl font-bold font-mono text-emerald-400">{services.length}</div>
+          <div className="text-[11px] text-gray-500">Active menu items</div>
+        </div>
+        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
+          <div className="text-[10px] uppercase font-mono text-gray-400">salon_staff</div>
+          <div className="text-xl font-bold font-mono text-amber-400">{staff.length}</div>
+          <div className="text-[11px] text-gray-500">Stylists & managers</div>
+        </div>
+      </div>
+
+      {/* Tabs navigation */}
+      <div className="flex border-b border-white/10 gap-4 text-xs font-semibold">
+        <button
+          type="button"
+          onClick={() => setActiveTab('sql')}
+          className={`pb-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'sql'
+              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Code className="w-4 h-4" />
+          <span>PostgreSQL SQL Script</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('config')}
+          className={`pb-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'config'
+              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>Supabase Connection Config</span>
+        </button>
+      </div>
+
+      {/* Tab 1: SQL Preview */}
+      {activeTab === 'sql' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs text-gray-400 font-mono">
+            <span>Includes CREATE TABLE + Seed INSERT INTO statements for Supabase SQL Editor</span>
+            <span>{generatedSql.split('\n').length} lines</span>
+          </div>
+
+          <div className="relative rounded-2xl bg-[#05080F] border border-white/10 p-4 font-mono text-xs overflow-x-auto max-h-[460px] text-gray-300 scrollbar-thin">
+            <pre className="whitespace-pre">{generatedSql}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Supabase Config */}
+      {activeTab === 'config' && (
+        <div className="p-6 rounded-2xl bg-[#070B14] border border-white/10 max-w-2xl space-y-4">
+          <h4 className="font-['Cinzel'] text-lg font-bold text-white">Supabase Project Settings</h4>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Enter your Supabase project credentials to test REST endpoints or maintain a linked backup instance.
+          </p>
+
+          {pingStatus && (
+            <div className="p-3 bg-[#0E1628] border border-[#D4AF37]/40 rounded-xl text-xs text-[#FFDF78] font-mono">
+              {pingStatus}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveConfig} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-gray-300 mb-1 font-mono">SUPABASE PROJECT URL</label>
+              <input
+                type="url"
+                placeholder="https://xyzcompany.supabase.co"
+                value={supabaseUrl}
+                onChange={(e) => setSupabaseUrl(e.target.value)}
+                className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-300 mb-1 font-mono">SUPABASE ANON / SERVICE KEY</label>
+              <input
+                type="password"
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                value={supabaseKey}
+                onChange={(e) => setSupabaseKey(e.target.value)}
+                className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase rounded-xl tracking-wider hover:brightness-110 transition-all"
+              >
+                Save Settings
+              </button>
+              <button
+                type="button"
+                disabled={pingLoading}
+                onClick={handleTestConnection}
+                className="px-5 py-2.5 bg-white/10 hover:bg-white/15 text-white font-medium text-xs rounded-xl border border-white/20 transition-all"
+              >
+                {pingLoading ? 'Testing API...' : 'Test Connection'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
