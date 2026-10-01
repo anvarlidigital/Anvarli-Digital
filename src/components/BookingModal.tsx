@@ -6,6 +6,7 @@ import { db, sanitizeForFirestore } from '../services/firebase';
 import { doc, getDoc, setDoc, runTransaction, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
 import { formatDateDDMMYYYY } from '../utils/date';
+import { syncBookingToSupabase } from '../services/supabaseSync';
 import confetti from 'canvas-confetti';
 import {
   AlertCircle,
@@ -444,6 +445,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
       const docRef = await addDoc(collection(db, 'bookings'), sanitizeForFirestore(newBooking));
       const confirmedBooking = { ...newBooking, id: docRef.id };
+
+      // Background Real-Time Sync to Supabase Table Viewer
+      syncBookingToSupabase(confirmedBooking).catch((syncErr) => {
+        console.warn('Background Supabase booking sync note:', syncErr);
+      });
 
       // Cache booking in local storage so it immediately persists for this browser session
       try {

@@ -8,12 +8,22 @@
     padding: 0;
     overflow-x: hidden;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
   }
 
   #root {
     width: 100%;
     min-height: 100%;
     overflow-x: hidden;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Prevent automatic iOS zoom while preserving legibility on mobile */
+  @media (max-width: 640px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 
   h1, h2, h3, .font-cinzel {
@@ -27,8 +37,8 @@
 
 /* Custom Luxury Gold Scrollbar */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {

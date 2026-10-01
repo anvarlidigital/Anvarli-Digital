@@ -13,6 +13,7 @@ import type {
   SalonSettings
 } from '../types';
 import { db, uploadImageOrMedia, resyncOfficialServicesMenu, clearAllBookingsAndResetSlots } from '../services/firebase';
+import { syncAllToSupabase, testSupabaseConnection, SUPABASE_CONFIG } from '../services/supabaseSync';
 import { formatDateDDMMYYYY } from '../utils/date';
 import {
   collection,
@@ -3325,7 +3326,7 @@ const AdminCustomersManager: React.FC<{
 };
 
 /* =========================================================================
-   SUB-COMPONENT 9.5: SUPABASE SQL CONNECTOR & EXPORT MANAGER
+   SUB-COMPONENT 9.5: SUPABASE SQL CONNECTOR & TABLE VIEWER SYNC MANAGER
    ========================================================================= */
 const AdminSupabaseManager: React.FC<{
   bookings: BookingItem[];
@@ -3334,53 +3335,95 @@ const AdminSupabaseManager: React.FC<{
   staff: StaffItem[];
 }> = ({ bookings, users, services, staff }) => {
   const [supabaseUrl, setSupabaseUrl] = useState(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_url') || '' : '';
+    return (
+      (typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_url') : '') ||
+      SUPABASE_CONFIG.url
+    );
   });
   const [supabaseKey, setSupabaseKey] = useState(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_key') || '' : '';
+    return (
+      (typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_key') : '') ||
+      SUPABASE_CONFIG.apiKey
+    );
   });
   const [pingStatus, setPingStatus] = useState<string | null>(null);
+  const [pingSuccess, setPingSuccess] = useState<boolean | null>(null);
   const [pingLoading, setPingLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState<{
+    syncedBookings: number;
+    syncedUsers: number;
+    syncedServices: number;
+    syncedStaff: number;
+    errors: string[];
+  } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sql' | 'config' | 'export'>('sql');
+  const [activeTab, setActiveTab] = useState<'sync' | 'sql' | 'config'>('sync');
 
-  // Save configuration
+  // Save custom configuration
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
     localStorage.setItem('tt_supabase_url', supabaseUrl.trim());
     localStorage.setItem('tt_supabase_key', supabaseKey.trim());
-    setPingStatus('Config saved to local browser storage.');
+    setPingStatus('Credentials successfully saved to local browser storage.');
+    setPingSuccess(true);
   };
 
-  // Test Supabase REST connectivity
+  // Test Supabase REST connectivity & table detection
   const handleTestConnection = async () => {
-    if (!supabaseUrl) {
-      setPingStatus('Please enter a Supabase Project URL first.');
-      return;
-    }
     setPingLoading(true);
     setPingStatus(null);
+    setPingSuccess(null);
     try {
-      const cleanUrl = supabaseUrl.replace(/\/+$/, '');
-      const res = await fetch(`${cleanUrl}/rest/v1/`, {
-        headers: {
-          apikey: supabaseKey.trim() || 'anon',
-          Authorization: `Bearer ${supabaseKey.trim() || 'anon'}`,
-        },
-      });
-      if (res.ok || res.status === 401 || res.status === 200) {
-        setPingStatus(`Supabase endpoint reachable! (Status: ${res.status})`);
+      const res = await testSupabaseConnection();
+      if (res.connected) {
+        let msg = `✅ Connected to Supabase Project (${SUPABASE_CONFIG.projectId})!`;
+        if (res.hasBookingsTable && res.hasUsersTable) {
+          msg += ' "bookings" and "users" tables detected and accessible in Table Viewer.';
+        } else if (!res.hasBookingsTable) {
+          msg += ' Note: "bookings" table not yet created. Run the SQL script in SQL Editor once.';
+        }
+        setPingStatus(msg);
+        setPingSuccess(true);
       } else {
-        setPingStatus(`Supabase responded with HTTP ${res.status}: ${res.statusText}`);
+        setPingStatus(`⚠️ ${res.message} (HTTP ${res.status})`);
+        setPingSuccess(false);
       }
     } catch (err: any) {
-      setPingStatus(`Connection test error: ${err?.message || 'Check URL / CORS settings'}`);
+      setPingStatus(`❌ Connection error: ${err?.message || 'Check network / project URL'}`);
+      setPingSuccess(false);
     } finally {
       setPingLoading(false);
     }
   };
 
-  // Generate complete PostgreSQL SQL schema and insert scripts
+  // Push all existing Firestore data into Supabase
+  const handleSyncAllData = async () => {
+    setSyncLoading(true);
+    setSyncResult(null);
+    try {
+      const res = await syncAllToSupabase({ bookings, users, services, staff });
+      setSyncResult({
+        syncedBookings: res.syncedBookings,
+        syncedUsers: res.syncedUsers,
+        syncedServices: res.syncedServices,
+        syncedStaff: res.syncedStaff,
+        errors: res.errors,
+      });
+    } catch (err: any) {
+      setSyncResult({
+        syncedBookings: 0,
+        syncedUsers: 0,
+        syncedServices: 0,
+        syncedStaff: 0,
+        errors: [err?.message || 'Sync failed'],
+      });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  // Complete SQL schema matching Supabase Table Viewer
   const generatedSql = useMemo(() => {
     const escapeSql = (str?: string | null) => {
       if (str === null || str === undefined) return 'NULL';
@@ -3388,93 +3431,113 @@ const AdminSupabaseManager: React.FC<{
     };
 
     let sql = `-- =========================================================================\n`;
-    sql += `-- Trim & Twisted Luxury Unisex Salon - Supabase PostgreSQL Schema & Seed\n`;
+    sql += `-- TRIM & TWISTED - SUPABASE POSTGRESQL SCHEMA & SEED\n`;
+    sql += `-- Project ID: kvuwagkynvucrwyregxe\n`;
     sql += `-- Generated on ${new Date().toISOString()}\n`;
     sql += `-- =========================================================================\n\n`;
 
-    // 1. Table Definitions
-    sql += `-- 1. Services Table\n`;
-    sql += `CREATE TABLE IF NOT EXISTS salon_services (\n`;
-    sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT NOT NULL,\n`;
-    sql += `  category TEXT NOT NULL,\n`;
-    sql += `  price NUMERIC,\n`;
-    sql += `  price_label TEXT,\n`;
-    sql += `  offer_price NUMERIC,\n`;
-    sql += `  is_haircut BOOLEAN DEFAULT false,\n`;
-    sql += `  active BOOLEAN DEFAULT true,\n`;
-    sql += `  sort_order INTEGER DEFAULT 0,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 2. Staff Table\n`;
-    sql += `CREATE TABLE IF NOT EXISTS salon_staff (\n`;
-    sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT NOT NULL,\n`;
-    sql += `  phone TEXT,\n`;
-    sql += `  role TEXT,\n`;
-    sql += `  salary NUMERIC,\n`;
-    sql += `  status TEXT DEFAULT 'Active',\n`;
-    sql += `  photo_url TEXT,\n`;
-    sql += `  date_joined DATE,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 3. Users Table\n`;
-    sql += `CREATE TABLE IF NOT EXISTS salon_users (\n`;
+    sql += `-- 1. USERS TABLE\n`;
+    sql += `CREATE TABLE IF NOT EXISTS public.users (\n`;
     sql += `  uid TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT,\n`;
+    sql += `  name TEXT NOT NULL,\n`;
     sql += `  email TEXT,\n`;
     sql += `  phone TEXT,\n`;
-    sql += `  loyalty_points INTEGER DEFAULT 0,\n`;
+    sql += `  photo_url TEXT,\n`;
+    sql += `  loyalty_points INTEGER DEFAULT 100,\n`;
     sql += `  referral_code TEXT,\n`;
+    sql += `  referred_by TEXT,\n`;
     sql += `  phone_verified BOOLEAN DEFAULT false,\n`;
     sql += `  role TEXT DEFAULT 'customer',\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `  is_admin BOOLEAN DEFAULT false,\n`;
+    sql += `  notes TEXT,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
+    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
     sql += `);\n\n`;
 
-    sql += `-- 4. Bookings Table\n`;
-    sql += `CREATE TABLE IF NOT EXISTS salon_bookings (\n`;
+    sql += `-- 2. BOOKINGS TABLE\n`;
+    sql += `CREATE TABLE IF NOT EXISTS public.bookings (\n`;
     sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  booking_id TEXT NOT NULL,\n`;
+    sql += `  booking_id TEXT NOT NULL UNIQUE,\n`;
+    sql += `  user_id TEXT REFERENCES public.users(uid) ON DELETE SET NULL,\n`;
     sql += `  customer_name TEXT NOT NULL,\n`;
     sql += `  customer_phone TEXT NOT NULL,\n`;
     sql += `  customer_email TEXT,\n`;
-    sql += `  booking_date DATE NOT NULL,\n`;
+    sql += `  date DATE NOT NULL,\n`;
     sql += `  slot TEXT NOT NULL,\n`;
+    sql += `  slot_key TEXT,\n`;
     sql += `  pool_type TEXT DEFAULT 'haircut',\n`;
+    sql += `  service_ids TEXT[] DEFAULT '{}',\n`;
+    sql += `  services JSONB DEFAULT '[]'::jsonb,\n`;
+    sql += `  stylist_id TEXT,\n`;
+    sql += `  stylist_name TEXT,\n`;
+    sql += `  subtotal NUMERIC(10, 2) DEFAULT 0,\n`;
+    sql += `  discount NUMERIC(10, 2) DEFAULT 0,\n`;
+    sql += `  total_amount NUMERIC(10, 2) NOT NULL,\n`;
+    sql += `  coupon_code TEXT,\n`;
     sql += `  status TEXT DEFAULT 'Confirmed',\n`;
-    sql += `  subtotal NUMERIC DEFAULT 0,\n`;
-    sql += `  discount NUMERIC DEFAULT 0,\n`;
-    sql += `  total_amount NUMERIC NOT NULL,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `  notes TEXT,\n`;
+    sql += `  history JSONB DEFAULT '[]'::jsonb,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
+    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
     sql += `);\n\n`;
 
-    // 2. Insert Seeds
-    sql += `-- -------------------------------------------------------------------------\n`;
-    sql += `-- DATA SEED INSERTS\n`;
-    sql += `-- -------------------------------------------------------------------------\n\n`;
+    sql += `-- 3. SERVICES TABLE\n`;
+    sql += `CREATE TABLE IF NOT EXISTS public.services (\n`;
+    sql += `  id TEXT PRIMARY KEY,\n`;
+    sql += `  name TEXT NOT NULL,\n`;
+    sql += `  category TEXT NOT NULL,\n`;
+    sql += `  price NUMERIC(10, 2),\n`;
+    sql += `  price_label TEXT,\n`;
+    sql += `  offer_price NUMERIC(10, 2),\n`;
+    sql += `  note TEXT,\n`;
+    sql += `  image TEXT,\n`;
+    sql += `  is_haircut BOOLEAN DEFAULT false,\n`;
+    sql += `  active BOOLEAN DEFAULT true,\n`;
+    sql += `  sort_order INTEGER DEFAULT 0,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
+    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
 
-    if (services.length > 0) {
-      sql += `-- Services (${services.length} records)\n`;
-      services.forEach((s) => {
-        sql += `INSERT INTO salon_services (id, name, category, price, price_label, offer_price, is_haircut, active, sort_order) VALUES (${escapeSql(s.id)}, ${escapeSql(s.name)}, ${escapeSql(s.category)}, ${s.price ?? 'NULL'}, ${escapeSql(s.priceLabel)}, ${s.offerPrice ?? 'NULL'}, ${s.isHaircut ? 'true' : 'false'}, ${s.active ? 'true' : 'false'}, ${s.sortOrder || 0}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, offer_price = EXCLUDED.offer_price;\n`;
-      });
-      sql += `\n`;
-    }
+    sql += `-- 4. STAFF TABLE\n`;
+    sql += `CREATE TABLE IF NOT EXISTS public.staff (\n`;
+    sql += `  id TEXT PRIMARY KEY,\n`;
+    sql += `  name TEXT NOT NULL,\n`;
+    sql += `  phone TEXT,\n`;
+    sql += `  role TEXT NOT NULL,\n`;
+    sql += `  salary NUMERIC(10, 2) DEFAULT 0,\n`;
+    sql += `  status TEXT DEFAULT 'Active',\n`;
+    sql += `  photo_url TEXT,\n`;
+    sql += `  date_joined TEXT,\n`;
+    sql += `  total_paid NUMERIC(10, 2) DEFAULT 0,\n`;
+    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
+    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
+    sql += `);\n\n`;
 
-    if (staff.length > 0) {
-      sql += `-- Staff (${staff.length} records)\n`;
-      staff.forEach((st) => {
-        sql += `INSERT INTO salon_staff (id, name, phone, role, salary, status, photo_url, date_joined) VALUES (${escapeSql(st.id)}, ${escapeSql(st.name)}, ${escapeSql(st.phone)}, ${escapeSql(st.role)}, ${st.salary ?? 'NULL'}, ${escapeSql(st.status || 'Active')}, ${escapeSql(st.photoURL)}, ${escapeSql(st.dateJoined)}) ON CONFLICT (id) DO NOTHING;\n`;
-      });
-      sql += `\n`;
-    }
+    sql += `-- 5. ROW LEVEL SECURITY (RLS) POLICIES FOR SUPABASE TABLE EDITOR\n`;
+    sql += `ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;\n`;
+    sql += `ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;\n`;
+    sql += `ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;\n`;
+    sql += `ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;\n\n`;
 
+    sql += `GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;\n`;
+    sql += `GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;\n`;
+    sql += `GRANT ALL ON TABLE public.services TO anon, authenticated, service_role;\n`;
+    sql += `GRANT ALL ON TABLE public.staff TO anon, authenticated, service_role;\n\n`;
+
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read users" ON public.users FOR SELECT USING (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write users" ON public.users FOR ALL USING (true) WITH CHECK (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read bookings" ON public.bookings FOR SELECT USING (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write bookings" ON public.bookings FOR ALL USING (true) WITH CHECK (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read services" ON public.services FOR SELECT USING (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write services" ON public.services FOR ALL USING (true) WITH CHECK (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read staff" ON public.staff FOR SELECT USING (true);\n`;
+    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write staff" ON public.staff FOR ALL USING (true) WITH CHECK (true);\n\n`;
+
+    sql += `-- 6. DATA INSERTS\n`;
     if (users.length > 0) {
       sql += `-- Users (${users.length} records)\n`;
       users.forEach((u) => {
-        sql += `INSERT INTO salon_users (uid, name, email, phone, loyalty_points, referral_code, phone_verified, role) VALUES (${escapeSql(u.uid)}, ${escapeSql(u.name)}, ${escapeSql(u.email)}, ${escapeSql(u.phone)}, ${u.loyaltyPoints || 0}, ${escapeSql(u.referralCode)}, ${u.phoneVerified ? 'true' : 'false'}, ${escapeSql(u.role || 'customer')}) ON CONFLICT (uid) DO NOTHING;\n`;
+        sql += `INSERT INTO public.users (uid, name, email, phone, loyalty_points, referral_code, phone_verified, role, is_admin) VALUES (${escapeSql(u.uid)}, ${escapeSql(u.name)}, ${escapeSql(u.email)}, ${escapeSql(u.phone)}, ${u.loyaltyPoints || 0}, ${escapeSql(u.referralCode)}, ${u.phoneVerified ? 'true' : 'false'}, ${escapeSql(u.role || 'customer')}, ${u.isAdmin ? 'true' : 'false'}) ON CONFLICT (uid) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, loyalty_points = EXCLUDED.loyalty_points;\n`;
       });
       sql += `\n`;
     }
@@ -3482,7 +3545,7 @@ const AdminSupabaseManager: React.FC<{
     if (bookings.length > 0) {
       sql += `-- Bookings (${bookings.length} records)\n`;
       bookings.forEach((b) => {
-        sql += `INSERT INTO salon_bookings (id, booking_id, customer_name, customer_phone, customer_email, booking_date, slot, pool_type, status, subtotal, discount, total_amount) VALUES (${escapeSql(b.id || b.bookingId)}, ${escapeSql(b.bookingId)}, ${escapeSql(b.customerName)}, ${escapeSql(b.customerPhone)}, ${escapeSql(b.customerEmail)}, ${escapeSql(b.date)}, ${escapeSql(b.slot)}, ${escapeSql(b.poolType)}, ${escapeSql(b.status)}, ${b.subtotal || 0}, ${b.discount || 0}, ${b.totalAmount || 0}) ON CONFLICT (id) DO NOTHING;\n`;
+        sql += `INSERT INTO public.bookings (id, booking_id, user_id, customer_name, customer_phone, customer_email, date, slot, pool_type, status, subtotal, discount, total_amount, coupon_code, notes) VALUES (${escapeSql(b.id || b.bookingId)}, ${escapeSql(b.bookingId)}, ${escapeSql(b.userId)}, ${escapeSql(b.customerName)}, ${escapeSql(b.customerPhone)}, ${escapeSql(b.customerEmail)}, ${escapeSql(b.date)}, ${escapeSql(b.slot)}, ${escapeSql(b.poolType)}, ${escapeSql(b.status)}, ${b.subtotal || 0}, ${b.discount || 0}, ${b.totalAmount || 0}, ${escapeSql(b.couponCode)}, ${escapeSql(b.notes)}) ON CONFLICT (booking_id) DO UPDATE SET status = EXCLUDED.status, total_amount = EXCLUDED.total_amount;\n`;
       });
       sql += `\n`;
     }
@@ -3490,67 +3553,52 @@ const AdminSupabaseManager: React.FC<{
     return sql;
   }, [services, staff, users, bookings]);
 
-  // Copy SQL to clipboard
   const handleCopySql = () => {
     navigator.clipboard.writeText(generatedSql);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
-  // Download SQL script file
   const handleDownloadSql = () => {
     const blob = new Blob([generatedSql], { type: 'application/sql' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `trim_and_twisted_supabase_${new Date().toISOString().slice(0, 10)}.sql`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Download JSON full database backup
-  const handleDownloadJsonBackup = () => {
-    const backup = {
-      exportedAt: new Date().toISOString(),
-      salon: 'Trim & Twisted',
-      counts: {
-        bookings: bookings.length,
-        users: users.length,
-        services: services.length,
-        staff: staff.length,
-      },
-      data: {
-        services,
-        staff,
-        users,
-        bookings,
-      },
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trim_and_twisted_data_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `supabase_schema_${SUPABASE_CONFIG.projectId}.sql`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Project Status */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="font-['Cinzel'] text-xl font-bold text-white flex items-center gap-2">
-            <Database className="w-5 h-5 text-[#D4AF37]" />
-            <span>Supabase SQL Connector & Migration</span>
-          </h3>
-          <p className="text-xs text-gray-400">
-            Export PostgreSQL DDL schemas, generate relational migration scripts, and configure Supabase connectivity.
+          <div className="flex items-center gap-2">
+            <h3 className="font-['Cinzel'] text-xl font-bold text-white flex items-center gap-2">
+              <Database className="w-5 h-5 text-[#D4AF37]" />
+              <span>Supabase SQL & Table Viewer Integration</span>
+            </h3>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+              Project: {SUPABASE_CONFIG.projectId}
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Real-time appointment bookings and customer profiles synchronized directly into Supabase Table Viewer.
           </p>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={SUPABASE_CONFIG.tableViewerUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+          >
+            <span>Open Table Editor</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </a>
           <button
             type="button"
             onClick={handleCopySql}
@@ -3567,43 +3615,115 @@ const AdminSupabaseManager: React.FC<{
             <Download className="w-3.5 h-3.5" />
             <span>Download .sql</span>
           </button>
+        </div>
+      </div>
+
+      {/* Real-time Status Card */}
+      <div className="p-4 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+              Live Auto-Sync Active
+            </span>
+          </div>
+          <p className="text-xs text-gray-300">
+            Every appointment booked by patrons is automatically pushed to the <code className="text-[#FFDF78]">public.bookings</code> table in Supabase.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handleDownloadJsonBackup}
-            className="px-3.5 py-2 rounded-xl bg-blue-950/80 hover:bg-blue-900 border border-blue-500/40 text-blue-300 font-medium text-xs flex items-center gap-1.5 transition-all"
+            disabled={syncLoading}
+            onClick={handleSyncAllData}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow flex items-center gap-1.5"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
-            <span>Export JSON</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${syncLoading ? 'animate-spin' : ''}`} />
+            <span>{syncLoading ? 'Syncing Tables...' : '⚡ Push All Data to Supabase Now'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={pingLoading}
+            onClick={handleTestConnection}
+            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-gray-200 text-xs font-semibold border border-white/20 transition-all flex items-center gap-1.5"
+          >
+            {pingLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[#FFDF78]" />}
+            <span>Test Connection</span>
           </button>
         </div>
       </div>
 
+      {/* Sync / Test Results Notification */}
+      {pingStatus && (
+        <div className={`p-3.5 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in ${
+          pingSuccess
+            ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+            : 'bg-amber-950/80 border-amber-500/50 text-amber-200'
+        }`}>
+          {pingSuccess ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
+          <span>{pingStatus}</span>
+        </div>
+      )}
+
+      {syncResult && (
+        <div className={`p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in ${
+          syncResult.errors.length === 0
+            ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+            : 'bg-amber-950/80 border-amber-500/50 text-amber-200'
+        }`}>
+          <div className="flex items-center gap-2 font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              Sync Complete: {syncResult.syncedBookings} bookings, {syncResult.syncedUsers} users, {syncResult.syncedServices} services, {syncResult.syncedStaff} stylists pushed to Supabase!
+            </span>
+          </div>
+          {syncResult.errors.length > 0 && (
+            <div className="text-[11px] text-amber-300 font-mono pl-6">
+              Warnings/Errors: {syncResult.errors.join(' | ')}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Database Statistics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">salon_bookings</div>
+          <div className="text-[10px] uppercase font-mono text-gray-400">public.bookings</div>
           <div className="text-xl font-bold font-mono text-[#FFDF78]">{bookings.length}</div>
-          <div className="text-[11px] text-gray-500">Live booking records</div>
+          <div className="text-[11px] text-gray-500">Live appointments</div>
         </div>
         <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">salon_users</div>
+          <div className="text-[10px] uppercase font-mono text-gray-400">public.users</div>
           <div className="text-xl font-bold font-mono text-white">{users.length}</div>
-          <div className="text-[11px] text-gray-500">Registered member profiles</div>
+          <div className="text-[11px] text-gray-500">Registered patrons</div>
         </div>
         <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">salon_services</div>
+          <div className="text-[10px] uppercase font-mono text-gray-400">public.services</div>
           <div className="text-xl font-bold font-mono text-emerald-400">{services.length}</div>
-          <div className="text-[11px] text-gray-500">Active menu items</div>
+          <div className="text-[11px] text-gray-500">Active salon menu</div>
         </div>
         <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">salon_staff</div>
+          <div className="text-[10px] uppercase font-mono text-gray-400">public.staff</div>
           <div className="text-xl font-bold font-mono text-amber-400">{staff.length}</div>
-          <div className="text-[11px] text-gray-500">Stylists & managers</div>
+          <div className="text-[11px] text-gray-500">Stylists & team</div>
         </div>
       </div>
 
-      {/* Tabs navigation */}
+      {/* Sub Tabs */}
       <div className="flex border-b border-white/10 gap-4 text-xs font-semibold">
+        <button
+          type="button"
+          onClick={() => setActiveTab('sync')}
+          className={`pb-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'sync'
+              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Table className="w-4 h-4" />
+          <span>Live Data Table Inspector</span>
+        </button>
         <button
           type="button"
           onClick={() => setActiveTab('sql')}
@@ -3614,7 +3734,7 @@ const AdminSupabaseManager: React.FC<{
           }`}
         >
           <Code className="w-4 h-4" />
-          <span>PostgreSQL SQL Script</span>
+          <span>Supabase SQL Script</span>
         </button>
         <button
           type="button"
@@ -3626,16 +3746,83 @@ const AdminSupabaseManager: React.FC<{
           }`}
         >
           <Settings className="w-4 h-4" />
-          <span>Supabase Connection Config</span>
+          <span>Connection Credentials</span>
         </button>
       </div>
 
-      {/* Tab 1: SQL Preview */}
+      {/* Tab 1: Live Data Table Inspector */}
+      {activeTab === 'sync' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-400">
+              Showing preview of rows formatted exactly as structured in Supabase:
+            </span>
+            <a
+              href="https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#FFDF78] hover:underline font-mono"
+            >
+              Run SQL in Supabase Dashboard &rarr;
+            </a>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14]">
+            <table className="w-full text-left text-xs text-gray-300">
+              <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
+                <tr>
+                  <th className="py-2.5 px-3">booking_id</th>
+                  <th className="py-2.5 px-3">customer_name</th>
+                  <th className="py-2.5 px-3">customer_phone</th>
+                  <th className="py-2.5 px-3">date</th>
+                  <th className="py-2.5 px-3">slot</th>
+                  <th className="py-2.5 px-3">total_amount</th>
+                  <th className="py-2.5 px-3">status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                {bookings.slice(0, 10).map((b) => (
+                  <tr key={b.bookingId} className="hover:bg-white/5">
+                    <td className="py-2.5 px-3 font-bold text-[#FFDF78]">{b.bookingId}</td>
+                    <td className="py-2.5 px-3 font-sans text-white">{b.customerName}</td>
+                    <td className="py-2.5 px-3">{b.customerPhone}</td>
+                    <td className="py-2.5 px-3">{b.date}</td>
+                    <td className="py-2.5 px-3">{b.slot}</td>
+                    <td className="py-2.5 px-3 font-bold text-emerald-400">₹{b.totalAmount}</td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold ${
+                        b.status === 'Completed'
+                          ? 'bg-blue-950 text-blue-300'
+                          : b.status === 'Confirmed'
+                          ? 'bg-emerald-950 text-emerald-300'
+                          : 'bg-red-950 text-red-300'
+                      }`}>
+                        {b.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: SQL Script */}
       {activeTab === 'sql' && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs text-gray-400 font-mono">
-            <span>Includes CREATE TABLE + Seed INSERT INTO statements for Supabase SQL Editor</span>
-            <span>{generatedSql.split('\n').length} lines</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-gray-400 font-mono gap-2">
+            <span>One-click execution script for Supabase SQL Editor:</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopySql}
+                className="text-[#FFDF78] hover:underline flex items-center gap-1"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copiedSql ? 'Copied to Clipboard!' : 'Copy Entire SQL'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="relative rounded-2xl bg-[#05080F] border border-white/10 p-4 font-mono text-xs overflow-x-auto max-h-[460px] text-gray-300 scrollbar-thin">
@@ -3644,26 +3831,20 @@ const AdminSupabaseManager: React.FC<{
         </div>
       )}
 
-      {/* Tab 2: Supabase Config */}
+      {/* Tab 3: Configuration */}
       {activeTab === 'config' && (
         <div className="p-6 rounded-2xl bg-[#070B14] border border-white/10 max-w-2xl space-y-4">
-          <h4 className="font-['Cinzel'] text-lg font-bold text-white">Supabase Project Settings</h4>
+          <h4 className="font-['Cinzel'] text-lg font-bold text-white">Supabase Connection Credentials</h4>
           <p className="text-xs text-gray-400 leading-relaxed">
-            Enter your Supabase project credentials to test REST endpoints or maintain a linked backup instance.
+            Pre-configured with Project <code className="text-[#FFDF78]">kvuwagkynvucrwyregxe</code>. You can customize the URL or public API key below.
           </p>
-
-          {pingStatus && (
-            <div className="p-3 bg-[#0E1628] border border-[#D4AF37]/40 rounded-xl text-xs text-[#FFDF78] font-mono">
-              {pingStatus}
-            </div>
-          )}
 
           <form onSubmit={handleSaveConfig} className="space-y-4 text-xs">
             <div>
               <label className="block text-gray-300 mb-1 font-mono">SUPABASE PROJECT URL</label>
               <input
                 type="url"
-                placeholder="https://xyzcompany.supabase.co"
+                required
                 value={supabaseUrl}
                 onChange={(e) => setSupabaseUrl(e.target.value)}
                 className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
@@ -3671,10 +3852,10 @@ const AdminSupabaseManager: React.FC<{
             </div>
 
             <div>
-              <label className="block text-gray-300 mb-1 font-mono">SUPABASE ANON / SERVICE KEY</label>
+              <label className="block text-gray-300 mb-1 font-mono">SUPABASE ANON PUBLIC API KEY</label>
               <input
-                type="password"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                type="text"
+                required
                 value={supabaseKey}
                 onChange={(e) => setSupabaseKey(e.target.value)}
                 className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
@@ -3686,7 +3867,7 @@ const AdminSupabaseManager: React.FC<{
                 type="submit"
                 className="px-5 py-2.5 bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase rounded-xl tracking-wider hover:brightness-110 transition-all"
               >
-                Save Settings
+                Save Credentials
               </button>
               <button
                 type="button"

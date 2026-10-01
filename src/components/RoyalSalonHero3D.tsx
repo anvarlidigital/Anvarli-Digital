@@ -353,17 +353,17 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
       : '#FFDF78';
 
   return (
-    <div className="relative w-full h-[320px] xs:h-[370px] sm:h-[480px] md:h-[560px] lg:h-[620px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
+    <div className="relative w-full h-[370px] xs:h-[410px] sm:h-[490px] md:h-[550px] lg:h-[620px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
       {/* Top Interactive HUD Bar */}
-      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+      <div className="absolute top-2.5 sm:top-4 left-2.5 sm:left-4 right-2.5 sm:right-4 z-20 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-none">
         {/* Badge */}
-        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-[#0D1527]/90 border border-[#D4AF37]/60 text-[#FFDF78] text-[11px] sm:text-xs font-semibold backdrop-blur-md shadow-lg pointer-events-auto">
-          <Crown className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-[#FFDF78]" />
-          <span>Interactive 3D Salon Sanctuary</span>
+        <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-[#0D1527]/90 border border-[#D4AF37]/60 text-[#FFDF78] text-[10px] sm:text-xs font-semibold backdrop-blur-md shadow-lg pointer-events-auto">
+          <Crown className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-[#FFDF78] shrink-0" />
+          <span className="truncate max-w-[150px] xs:max-w-none">Interactive 3D Salon</span>
         </div>
 
         {/* Camera Views & Lighting Controls */}
-        <div className="flex items-center gap-2 pointer-events-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
           {/* Presets */}
           <div className="hidden sm:flex bg-[#070B14]/85 p-1 rounded-xl border border-white/10 backdrop-blur-md text-xs">
             <button
@@ -399,11 +399,11 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
                 curr === 'gold' ? 'sapphire' : curr === 'sapphire' ? 'champagne' : 'gold'
               )
             }
-            className="p-2 rounded-xl bg-[#070B14]/80 border border-[#D4AF37]/40 text-[#FFDF78] text-xs flex items-center gap-1.5 backdrop-blur-md"
+            className="p-1.5 sm:p-2 rounded-xl bg-[#070B14]/80 border border-[#D4AF37]/40 text-[#FFDF78] text-[11px] sm:text-xs flex items-center gap-1 sm:gap-1.5 backdrop-blur-md shrink-0"
             title="Toggle Royal Ambiance Lighting"
           >
-            <Flame className="w-3.5 h-3.5" />
-            <span className="hidden md:inline capitalize">{lightingTheme} Light</span>
+            <Flame className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xs:inline capitalize">{lightingTheme}</span>
           </button>
         </div>
       </div>

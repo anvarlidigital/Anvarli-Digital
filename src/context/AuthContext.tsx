@@ -7,6 +7,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, googleProvider, appleProvider } from '../services/firebase';
+import { syncUserToSupabase } from '../services/supabaseSync';
 import { APP_CONFIG } from '../config';
 import type { UserProfile } from '../types';
 
@@ -60,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
             await setDoc(userRef, newProfile);
             setProfile(newProfile);
+            syncUserToSupabase(newProfile).catch(() => {});
             if (!newProfile.phone) {
               setPhonePromptOpen(true);
             }
@@ -115,6 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCustomUserProfile(realGoogleProfile);
     try {
       await setDoc(doc(db, 'users', uid), realGoogleProfile, { merge: true });
+      syncUserToSupabase(realGoogleProfile).catch(() => {});
     } catch (e) {
       console.warn('Google profile save note:', e);
     }
@@ -172,6 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const userRef = doc(db, 'users', profile.uid);
         await updateDoc(userRef, details);
+        syncUserToSupabase(updated).catch(() => {});
       } catch (e) {
         console.warn('Profile sync warning:', e);
       }

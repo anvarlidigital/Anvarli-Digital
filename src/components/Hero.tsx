@@ -40,12 +40,12 @@ export const Hero: React.FC<HeroProps> = ({
         </div>
 
         {/* Main Brand Title */}
-        <h1 className="font-['Cinzel'] text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-[#FFF5D6] via-[#E8C56B] to-[#996F14] drop-shadow-[0_4px_30px_rgba(0,0,0,0.8)] leading-[1.1]">
+        <h1 className="font-['Cinzel'] text-2xl xs:text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-[#FFF5D6] via-[#E8C56B] to-[#996F14] drop-shadow-[0_4px_30px_rgba(0,0,0,0.8)] leading-[1.15] break-words">
           TRIM & TWISTED
         </h1>
 
         {/* Official Tagline */}
-        <p className="font-['Playfair_Display'] italic text-xl sm:text-3xl md:text-4xl text-[#F6E7B4] tracking-wide mt-1.5 sm:mt-2 font-medium">
+        <p className="font-['Playfair_Display'] italic text-lg xs:text-xl sm:text-3xl md:text-4xl text-[#F6E7B4] tracking-wide mt-1.5 sm:mt-2 font-medium">
           &ldquo;Beauty Is You&rdquo;
         </p>
 
@@ -70,24 +70,24 @@ export const Hero: React.FC<HeroProps> = ({
       {/* Main Action CTAs & Trust Badges */}
       <div className="relative z-10 w-full max-w-4xl mx-auto text-center flex flex-col items-center">
         {/* Main CTA Buttons */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full sm:w-auto px-2 sm:px-0">
+        <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-4 w-full px-2 sm:px-0">
           <button
             onClick={onOpenBooking}
-            className="w-full sm:w-auto px-7 sm:px-9 py-3.5 sm:py-4 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F3D57C] to-[#AA7C11] text-[#070B14] font-extrabold text-xs sm:text-sm uppercase tracking-wider hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_35px_rgba(212,175,55,0.4)] flex items-center justify-center gap-2 group cursor-pointer"
+            className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F3D57C] to-[#AA7C11] text-[#070B14] font-extrabold text-xs sm:text-sm uppercase tracking-wider hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_35px_rgba(212,175,55,0.4)] flex items-center justify-center gap-2 group cursor-pointer"
           >
-            <Calendar className="w-4 h-4" />
+            <Calendar className="w-4 h-4 shrink-0" />
             <span>Book Your VIP Appointment</span>
-            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform shrink-0" />
           </button>
 
           <a
             href={APP_CONFIG.whatsappUrl}
             target="_blank"
             rel="noreferrer"
-            className="w-full sm:w-auto px-6 sm:px-7 py-3.5 sm:py-4 rounded-xl bg-[#0E1628] hover:bg-[#14223E] border border-[#D4AF37]/50 text-[#FFDF78] font-semibold text-xs sm:text-sm tracking-wide transition-all shadow-lg flex items-center justify-center gap-2.5"
+            className="w-full sm:w-auto px-5 sm:px-7 py-3.5 sm:py-4 rounded-xl bg-[#0E1628] hover:bg-[#14223E] border border-[#D4AF37]/50 text-[#FFDF78] font-semibold text-xs sm:text-sm tracking-wide transition-all shadow-lg flex items-center justify-center gap-2"
           >
-            <MessageCircle className="w-4 h-4 text-emerald-400" />
-            <span>Direct WhatsApp: {APP_CONFIG.formattedPhone}</span>
+            <MessageCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>WhatsApp Consultation</span>
           </a>
 
           <button
