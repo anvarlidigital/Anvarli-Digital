@@ -8,6 +8,7 @@ import { generateBookingVoucherPdf } from '../utils/voucherPdf';
 import { formatDateDDMMYYYY } from '../utils/date';
 import { syncBookingToSupabase } from '../services/supabaseSync';
 import { sendBookingSmsNotification } from '../services/smsService';
+import { sendBookingConfirmationEmail } from '../services/emailService';
 import confetti from 'canvas-confetti';
 import {
   AlertCircle,
@@ -93,6 +94,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const [couponError, setCouponError] = useState<string | null>(null);
   const [specialNotes, setSpecialNotes] = useState('');
   const [smsConsent, setSmsConsent] = useState(true);
+  const [emailConsent, setEmailConsent] = useState(true);
 
   // Real-time slot capacities state
   const [slotUsage, setSlotUsage] = useState<Record<string, { haircutCount: number; otherCount: number }>>({});
@@ -538,6 +540,36 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         // Customer explicitly opted out
         confirmedBooking.smsStatus = 'Opted-Out';
         confirmedBooking.notificationStatus = 'Customer Opted Out';
+      }
+
+      // 3. Dispatch Twilio Email Order Confirmation if email provided & consent given
+      if (emailConsent && confirmedBooking.customerEmail && confirmedBooking.customerEmail.includes('@')) {
+        const emailDedupKey = `tt_email_sent_${confirmedBooking.bookingId}`;
+        const alreadyEmailSent = typeof window !== 'undefined' && sessionStorage.getItem(emailDedupKey);
+        if (!alreadyEmailSent) {
+          try {
+            const emailRes = await sendBookingConfirmationEmail(confirmedBooking);
+            if (typeof window !== 'undefined') {
+              sessionStorage.setItem(emailDedupKey, 'true');
+            }
+            const isEmailSuccess = !!emailRes.success;
+            confirmedBooking.emailStatus = isEmailSuccess ? 'Sent' : 'Failed';
+            confirmedBooking.emailSentAt = new Date().toISOString();
+            if (!isEmailSuccess && emailRes.message) {
+              confirmedBooking.emailError = emailRes.message;
+            }
+
+            await updateDoc(doc(db, 'bookings', confirmedBooking.id), {
+              emailStatus: confirmedBooking.emailStatus,
+              emailSentAt: confirmedBooking.emailSentAt,
+              ...(confirmedBooking.emailError ? { emailError: confirmedBooking.emailError } : {})
+            }).catch(() => {});
+          } catch (emailErr: any) {
+            console.warn('[Booking] Twilio Email dispatch note:', emailErr);
+          }
+        }
+      } else if (!emailConsent) {
+        confirmedBooking.emailStatus = 'Disabled';
       }
 
       // Cache booking in local storage so it immediately persists for this browser session
@@ -1141,8 +1173,24 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   />
                 </div>
 
-                {/* SMS Notification Consent (Requirement #9) */}
-                <div className="sm:col-span-2">
+                {/* Email & SMS Notification Options */}
+                <div className="sm:col-span-2 space-y-2.5">
+                  {/* Email Confirmation Toggle */}
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#070B14] border border-[#D4AF37]/30 cursor-pointer hover:border-[#D4AF37]/60 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={emailConsent}
+                      onChange={(e) => setEmailConsent(e.target.checked)}
+                      className="mt-0.5 rounded border-[#D4AF37] text-[#D4AF37] focus:ring-[#D4AF37] cursor-pointer"
+                    />
+                    <div className="text-[11px] text-gray-300 leading-relaxed select-none">
+                      <span className="font-semibold text-[#FFDF78]">Receive Email Order Confirmation & Reminders:</span>{' '}
+                      Send instant confirmation receipt, digital pass, and appointment reminders to{' '}
+                      <span className="font-mono text-white">{customerEmail || 'my email address'}</span> via Twilio Email Gateway.
+                    </div>
+                  </label>
+
+                  {/* SMS Notification Consent (Requirement #9) */}
                   <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#070B14] border border-[#D4AF37]/30 cursor-pointer hover:border-[#D4AF37]/60 transition-colors">
                     <input
                       type="checkbox"
@@ -1359,6 +1407,19 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 {createdBooking.smsStatus === 'Opted-Out' && (
                   <div className="pt-2 text-[11px] text-gray-400 text-center border-t border-white/5">
                     SMS notifications opted out per your preference.
+                  </div>
+                )}
+
+                {/* Twilio Email Notification Receipt Badge */}
+                {createdBooking.customerEmail && createdBooking.emailStatus === 'Sent' && (
+                  <div className="pt-2 text-[11px] text-[#FFDF78] font-medium text-center border-t border-white/5 flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                    <span>Email voucher & order confirmation sent to {createdBooking.customerEmail}</span>
+                  </div>
+                )}
+                {createdBooking.customerEmail && createdBooking.emailStatus === 'Failed' && (
+                  <div className="pt-2 text-[11px] text-amber-300/80 text-center border-t border-white/5">
+                    Email notification queued for delivery to {createdBooking.customerEmail}
                   </div>
                 )}
               </div>

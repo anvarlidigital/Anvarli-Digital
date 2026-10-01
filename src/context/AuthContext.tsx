@@ -8,6 +8,7 @@ import {
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, googleProvider, appleProvider } from '../services/firebase';
 import { syncUserToSupabase } from '../services/supabaseSync';
+import { sendLoginAlertEmail } from '../services/emailService';
 import { APP_CONFIG } from '../config';
 import type { UserProfile } from '../types';
 
@@ -33,6 +34,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [phonePromptOpen, setPhonePromptOpen] = useState(false);
 
+  const triggerLoginEmailNotification = (email?: string, name?: string, method = 'Secure Sign-In') => {
+    if (!email || !email.includes('@')) return;
+    const sessionKey = `tt_login_alert_sent_${email.toLowerCase()}`;
+    if (typeof window !== 'undefined' && !sessionStorage.getItem(sessionKey)) {
+      sessionStorage.setItem(sessionKey, 'true');
+      sendLoginAlertEmail(email, name || 'Patron', method).catch((err) => {
+        console.warn('[Twilio Email] New login alert dispatch notice:', err);
+      });
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setUser(fbUser);
@@ -46,6 +58,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (!data.phone) {
               setPhonePromptOpen(true);
             }
+            if (data.email && data.emailNotifications?.newLogin !== false) {
+              triggerLoginEmailNotification(data.email, data.name, 'Google Sign-In');
+            }
           } else {
             // Create user profile in Firestore
             const newProfile: UserProfile = {
@@ -57,6 +72,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               loyaltyPoints: 100, // Welcome 100 loyalty points
               referralCode: `TT-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
               phoneVerified: !!fbUser.phoneNumber,
+              emailNotifications: {
+                newLogin: true,
+                orderConfirmation: true,
+                appointmentReminder: true
+              },
               createdAt: new Date().toISOString()
             };
             await setDoc(userRef, newProfile);
@@ -64,6 +84,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             syncUserToSupabase(newProfile).catch(() => {});
             if (!newProfile.phone) {
               setPhonePromptOpen(true);
+            }
+            if (newProfile.email) {
+              triggerLoginEmailNotification(newProfile.email, newProfile.name, 'Google Account Registration');
             }
           }
         } catch (err) {
@@ -115,6 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     setCustomUserProfile(realGoogleProfile);
+    triggerLoginEmailNotification(cleanEmail, cleanName, 'Google Sign-In');
     try {
       await setDoc(doc(db, 'users', uid), realGoogleProfile, { merge: true });
       syncUserToSupabase(realGoogleProfile).catch(() => {});

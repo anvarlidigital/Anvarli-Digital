@@ -29,6 +29,7 @@ import {
 import { sha256, generateSalt } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
 import { sendBookingSmsNotification } from '../services/smsService';
+import { sendAppointmentReminderEmail, sendBookingConfirmationEmail, testTwilioEmail } from '../services/emailService';
 import { jsPDF } from 'jspdf';
 import {
   AlertCircle,
@@ -54,6 +55,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Mail,
   MessageCircle,
   MessageSquare,
   Phone,
@@ -912,6 +914,72 @@ const AdminDashboardOverview: React.FC<{
     }
   };
 
+  // Twilio Comms Email Gateway Diagnostic Testing State
+  const [testEmailAddress, setTestEmailAddress] = useState('ghoshankitbrata4@gmail.com');
+  const [isSendingEmailTest, setIsSendingEmailTest] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{
+    success: boolean;
+    message: string;
+    operationId?: string;
+    code?: string;
+    timestamp: string;
+  } | null>(null);
+  const [adminEmailActionMsg, setAdminEmailActionMsg] = useState<{ id: string; text: string } | null>(null);
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailAddress.trim() || !testEmailAddress.includes('@')) {
+      setEmailTestResult({
+        success: false,
+        message: 'Please provide a valid email address.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      return;
+    }
+
+    setIsSendingEmailTest(true);
+    setEmailTestResult(null);
+
+    try {
+      const response = await testTwilioEmail(testEmailAddress.trim());
+      setEmailTestResult({
+        success: response.success,
+        message: response.message,
+        operationId: response.operationId,
+        code: response.code,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } catch (err: any) {
+      setEmailTestResult({
+        success: false,
+        message: err?.message || 'Network error communicating with /api/send-email endpoint.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } finally {
+      setIsSendingEmailTest(false);
+    }
+  };
+
+  const handleAdminSendReminderEmail = async (booking: BookingItem) => {
+    const target = booking.customerEmail;
+    if (!target) {
+      setAdminEmailActionMsg({ id: booking.id, text: 'No email address on this booking.' });
+      setTimeout(() => setAdminEmailActionMsg(null), 4000);
+      return;
+    }
+    setAdminEmailActionMsg({ id: booking.id, text: 'Dispatching appointment reminder email...' });
+    const res = await sendAppointmentReminderEmail(booking);
+    if (res.success) {
+      setAdminEmailActionMsg({ id: booking.id, text: `Reminder sent to ${target}!` });
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        emailStatus: 'Sent',
+        emailSentAt: new Date().toISOString()
+      }).catch(() => {});
+    } else {
+      setAdminEmailActionMsg({ id: booking.id, text: `Failed: ${res.message}` });
+    }
+    setTimeout(() => setAdminEmailActionMsg(null), 5000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Metric Cards */}
@@ -1115,11 +1183,142 @@ const AdminDashboardOverview: React.FC<{
         )}
       </div>
 
+      {/* Twilio Comms Email Gateway Diagnostic Card */}
+      <div className="p-5 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/40 flex items-center justify-center text-blue-400">
+              <Mail className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-['Cinzel'] text-sm sm:text-base font-bold text-white tracking-wide">
+                  Twilio Comms Email Gateway Diagnostic
+                </h4>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+                  comms.twilio.com
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Send transactional email notifications (new login, order confirmation, appointment reminders).
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-950/60 border border-blue-500/30 text-blue-300 text-[11px] font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
+              API: /api/send-email
+            </span>
+          </div>
+        </div>
+
+        {/* Email Diagnostic Input & Action Row */}
+        <div className="bg-[#0A101D] p-4 rounded-xl border border-white/10 flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex-1 space-y-1">
+            <label className="text-[11px] font-mono text-gray-300 flex items-center justify-between">
+              <span>Target Test Email Address:</span>
+              <button
+                type="button"
+                onClick={() => setTestEmailAddress('ghoshankitbrata4@gmail.com')}
+                className="text-[10px] text-[#FFDF78] hover:underline cursor-pointer"
+              >
+                Reset to verified default (ghoshankitbrata4@gmail.com)
+              </button>
+            </label>
+            <div className="relative">
+              <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="email"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                placeholder="ghoshankitbrata4@gmail.com"
+                className="w-full pl-9 pr-3 py-2 bg-[#070B14] border border-white/20 rounded-lg text-sm text-white font-mono focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleSendTestEmail}
+              disabled={isSendingEmailTest}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md ${
+                isSendingEmailTest
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white active:scale-95'
+              }`}
+            >
+              {isSendingEmailTest ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Dispatching Email...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Test Email</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Email Result Feedback Banner */}
+        {emailTestResult && (
+          <div
+            className={`mt-4 p-4 rounded-xl border flex items-start justify-between gap-3 text-xs transition-all ${
+              emailTestResult.success
+                ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
+                : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              {emailTestResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-1">
+                <p className="font-semibold text-white">
+                  {emailTestResult.success ? 'Twilio Email Accepted & Sent!' : 'Email Dispatch Failed'}
+                </p>
+                <p className="text-gray-300">{emailTestResult.message}</p>
+                {emailTestResult.operationId && (
+                  <p className="font-mono text-[11px] text-[#FFDF78]">
+                    Twilio Operation: <span className="font-bold">{emailTestResult.operationId}</span>
+                  </p>
+                )}
+                <span className="inline-block text-[10px] text-gray-400 font-mono">
+                  Timestamp: {emailTestResult.timestamp}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEmailTestResult(null)}
+              className="text-gray-400 hover:text-white p-1 cursor-pointer"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Recent Appointments Preview */}
       <div className="p-5 rounded-2xl bg-[#070B14] border border-white/10">
         <h4 className="font-['Cinzel'] text-base font-bold text-white mb-4">
           Latest Appointments
         </h4>
+
+        {adminEmailActionMsg && (
+          <div className="mb-3 p-3 rounded-xl bg-blue-950/70 border border-blue-500/40 text-xs text-blue-200 flex items-center gap-2">
+            <Mail className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>{adminEmailActionMsg.text}</span>
+          </div>
+        )}
 
         <div className="space-y-3">
           {bookings.slice(0, 5).map((b) => (
@@ -1152,6 +1351,25 @@ const AdminDashboardOverview: React.FC<{
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-400 bg-gray-800 border border-gray-700">
                       Opt-out
                     </span>
+                  ) : null}
+
+                  {b.emailStatus === 'Sent' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-950/80 text-blue-300 border border-blue-500/30" title="Email sent via Twilio">
+                      Email ✓
+                    </span>
+                  ) : b.emailStatus === 'Failed' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950/80 text-rose-300 border border-rose-500/30" title={b.emailError || "Email failed"}>
+                      Email ✕
+                    </span>
+                  ) : b.customerEmail ? (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminSendReminderEmail(b)}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-mono text-[#FFDF78] bg-[#D4AF37]/15 border border-[#D4AF37]/30 hover:bg-[#D4AF37]/30 transition-colors"
+                      title="Send reminder email now"
+                    >
+                      +Email
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -2141,6 +2359,31 @@ const AdminBookingsManager: React.FC<{
     onRefresh();
   };
 
+  const [adminEmailActionMsg, setAdminEmailActionMsg] = useState<{ id: string; text: string } | null>(null);
+
+  const handleAdminSendReminderEmail = async (booking: BookingItem) => {
+    const target = booking.customerEmail;
+    if (!target) {
+      setAdminEmailActionMsg({ id: booking.id || booking.bookingId, text: 'No email address on this booking.' });
+      setTimeout(() => setAdminEmailActionMsg(null), 4000);
+      return;
+    }
+    setAdminEmailActionMsg({ id: booking.id || booking.bookingId, text: 'Dispatching appointment reminder email...' });
+    const res = await sendAppointmentReminderEmail(booking);
+    if (res.success) {
+      setAdminEmailActionMsg({ id: booking.id || booking.bookingId, text: `Reminder sent to ${target} via Twilio!` });
+      if (booking.id) {
+        await updateDoc(doc(db, 'bookings', booking.id), {
+          emailStatus: 'Sent',
+          emailSentAt: new Date().toISOString()
+        }).catch(() => {});
+      }
+    } else {
+      setAdminEmailActionMsg({ id: booking.id || booking.bookingId, text: `Failed: ${res.message}` });
+    }
+    setTimeout(() => setAdminEmailActionMsg(null), 5000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Main Controls */}
@@ -2414,6 +2657,7 @@ const AdminBookingsManager: React.FC<{
                 <th className="py-3 px-4 text-right">Payable</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-center">SMS Alert</th>
+                <th className="py-3 px-4 text-center">Email Alert</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -2556,6 +2800,39 @@ const AdminBookingsManager: React.FC<{
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono text-gray-500 border border-white/10">
                           <span>Pending</span>
                         </span>
+                      )}
+                    </td>
+
+                    {/* Email Alert Status & Quick Action */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      {b.emailStatus === 'Sent' ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-950/60 text-blue-300 border border-blue-500/40"
+                          title={`Email delivered via Twilio${b.emailSentAt ? `\nSent: ${new Date(b.emailSentAt).toLocaleString()}` : ''}`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                          <span>Sent</span>
+                        </span>
+                      ) : b.emailStatus === 'Failed' ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-950/60 text-rose-300 border border-rose-500/40"
+                          title={b.emailError || 'Twilio email delivery failed'}
+                        >
+                          <AlertCircle className="w-3 h-3 text-rose-400" />
+                          <span>Failed</span>
+                        </span>
+                      ) : b.customerEmail ? (
+                        <button
+                          type="button"
+                          onClick={() => handleAdminSendReminderEmail(b)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold text-[#FFDF78] bg-[#D4AF37]/15 hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 cursor-pointer transition-colors"
+                          title={`Send appointment reminder email to ${b.customerEmail}`}
+                        >
+                          <Mail className="w-3 h-3 text-[#D4AF37]" />
+                          <span>Send</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-mono text-gray-500">None</span>
                       )}
                     </td>
 
@@ -2896,6 +3173,81 @@ const AdminBookingsManager: React.FC<{
               {selectedBookingForDetail.smsError && (
                 <div className="text-[11px] font-mono text-rose-300 bg-rose-950/30 p-2 rounded border border-rose-500/30">
                   <span className="text-rose-400 font-bold">Failure Reason:</span> {selectedBookingForDetail.smsError}
+                </div>
+              )}
+            </div>
+
+            {/* Twilio Email Notification Details & Action */}
+            <div className="p-3.5 rounded-2xl bg-[#070B14] border border-blue-500/35 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-gray-300 font-bold flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Twilio Email Notification Status</span>
+                </span>
+                {selectedBookingForDetail.emailStatus === 'Sent' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-950 text-blue-300 border border-blue-500/40">
+                    Delivered
+                  </span>
+                ) : selectedBookingForDetail.emailStatus === 'Failed' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-500/40">
+                    Failed
+                  </span>
+                ) : selectedBookingForDetail.customerEmail ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono text-amber-300 bg-amber-950/60 border border-amber-500/40">
+                    Pending
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono text-gray-400 bg-gray-800 border border-gray-700">
+                    No Email
+                  </span>
+                )}
+              </div>
+
+              {selectedBookingForDetail.customerEmail && (
+                <div className="text-[11px] font-mono text-gray-300">
+                  <span className="text-gray-500">Recipient:</span> <strong className="text-white">{selectedBookingForDetail.customerEmail}</strong>
+                </div>
+              )}
+
+              {selectedBookingForDetail.emailSentAt && (
+                <div className="text-[11px] font-mono text-gray-400">
+                  <span className="text-gray-500">Sent At:</span> {new Date(selectedBookingForDetail.emailSentAt).toLocaleString()}
+                </div>
+              )}
+
+              {selectedBookingForDetail.emailError && (
+                <div className="text-[11px] font-mono text-rose-300 bg-rose-950/30 p-2 rounded border border-rose-500/30">
+                  <span className="text-rose-400 font-bold">Failure:</span> {selectedBookingForDetail.emailError}
+                </div>
+              )}
+
+              {selectedBookingForDetail.customerEmail && (
+                <div className="flex gap-2 pt-1 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => handleAdminSendReminderEmail(selectedBookingForDetail)}
+                    className="flex-1 py-1.5 px-2.5 rounded-lg bg-blue-950/80 hover:bg-blue-900 border border-blue-500/40 text-[11px] font-bold text-blue-300 flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Mail className="w-3 h-3 text-blue-400" />
+                    <span>Send Reminder Email</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setAdminEmailActionMsg({ id: selectedBookingForDetail.id, text: 'Resending confirmation email...' });
+                      const res = await sendBookingConfirmationEmail(selectedBookingForDetail);
+                      if (res.success) {
+                        setAdminEmailActionMsg({ id: selectedBookingForDetail.id, text: 'Confirmation email resent!' });
+                      } else {
+                        setAdminEmailActionMsg({ id: selectedBookingForDetail.id, text: `Failed: ${res.message}` });
+                      }
+                      setTimeout(() => setAdminEmailActionMsg(null), 5000);
+                    }}
+                    className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/35 text-[11px] font-bold text-[#FFDF78] flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Send className="w-3 h-3 text-[#D4AF37]" />
+                    <span>Resend Confirmation</span>
+                  </button>
                 </div>
               )}
             </div>

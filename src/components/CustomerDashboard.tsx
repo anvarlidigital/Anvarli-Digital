@@ -17,8 +17,10 @@ import {
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
 import { formatDateDDMMYYYY } from '../utils/date';
 import { sendEmailOtp, sendSmsOtp, verifyOtp } from '../services/otp';
+import { sendAppointmentReminderEmail, testTwilioEmail } from '../services/emailService';
 import {
   AlertCircle,
+  Bell,
   Calendar,
   Camera,
   Check,
@@ -28,8 +30,11 @@ import {
   Gift,
   History,
   Lock,
+  Mail,
   MessageCircle,
+  Send,
   Share2,
+  Shield,
   Sparkles,
   Star,
   Tag,
@@ -84,12 +89,24 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [confirmCancelBooking, setConfirmCancelBooking] = useState<BookingItem | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
+  // Email Notification Preferences State
+  const [notifyLogin, setNotifyLogin] = useState(true);
+  const [notifyOrder, setNotifyOrder] = useState(true);
+  const [notifyReminder, setNotifyReminder] = useState(true);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailMsg, setTestEmailMsg] = useState<{ success: boolean; text: string } | null>(null);
+  const [reminderSendingBookingId, setReminderSendingBookingId] = useState<string | null>(null);
+  const [reminderSuccessMsg, setReminderSuccessMsg] = useState<string | null>(null);
+
   // Sync profile details
   useEffect(() => {
     if (profile) {
       setEditName(profile.name || '');
       setEditPhone(profile.phone || '');
       setEditEmail(profile.email || '');
+      setNotifyLogin(profile.emailNotifications?.newLogin !== false);
+      setNotifyOrder(profile.emailNotifications?.orderConfirmation !== false);
+      setNotifyReminder(profile.emailNotifications?.appointmentReminder !== false);
     }
   }, [profile]);
 
@@ -206,9 +223,85 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     // Otherwise save directly
     await updateProfileDetails({
       name: editName.trim(),
+      emailNotifications: {
+        newLogin: notifyLogin,
+        orderConfirmation: notifyOrder,
+        appointmentReminder: notifyReminder
+      }
     });
-    setProfileSavedMsg('Profile changes saved.');
+    setProfileSavedMsg('Profile and notification preferences saved.');
     setTimeout(() => setProfileSavedMsg(null), 3000);
+  };
+
+  // Instant toggle for email preferences
+  const handleToggleEmailPref = async (key: 'newLogin' | 'orderConfirmation' | 'appointmentReminder', val: boolean) => {
+    if (key === 'newLogin') setNotifyLogin(val);
+    if (key === 'orderConfirmation') setNotifyOrder(val);
+    if (key === 'appointmentReminder') setNotifyReminder(val);
+
+    const updatedPrefs = {
+      newLogin: key === 'newLogin' ? val : notifyLogin,
+      orderConfirmation: key === 'orderConfirmation' ? val : notifyOrder,
+      appointmentReminder: key === 'appointmentReminder' ? val : notifyReminder
+    };
+
+    await updateProfileDetails({ emailNotifications: updatedPrefs });
+    setProfileSavedMsg('Email preferences updated.');
+    setTimeout(() => setProfileSavedMsg(null), 2500);
+  };
+
+  // Send Appointment Reminder Email on demand for a booking
+  const handleSendBookingReminderEmail = async (booking: BookingItem) => {
+    const targetEmail = booking.customerEmail || editEmail.trim() || profile?.email;
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setReminderSuccessMsg('Please specify a valid email address on your profile first.');
+      setTimeout(() => setReminderSuccessMsg(null), 4000);
+      return;
+    }
+
+    setReminderSendingBookingId(booking.id || booking.bookingId);
+    setReminderSuccessMsg(null);
+    try {
+      const res = await sendAppointmentReminderEmail({ ...booking, customerEmail: targetEmail });
+      if (res.success) {
+        setReminderSuccessMsg(`Appointment reminder email sent to ${targetEmail} via Twilio!`);
+      } else {
+        setReminderSuccessMsg(`Could not send reminder: ${res.message}`);
+      }
+      setTimeout(() => setReminderSuccessMsg(null), 6000);
+    } catch (e: any) {
+      setReminderSuccessMsg(e?.message || 'Error dispatching reminder email');
+      setTimeout(() => setReminderSuccessMsg(null), 5000);
+    } finally {
+      setReminderSendingBookingId(null);
+    }
+  };
+
+  // Test Twilio Comms Email Gateway on demand
+  const handleTestTwilioEmail = async () => {
+    const target = editEmail.trim() || profile?.email || 'ghoshankitbrata4@gmail.com';
+    setSendingTestEmail(true);
+    setTestEmailMsg(null);
+    try {
+      const res = await testTwilioEmail(target);
+      if (res.success) {
+        setTestEmailMsg({
+          success: true,
+          text: `Twilio test email delivered to ${target}! (Operation: ${res.operationId || 'Accepted 202'})`
+        });
+      } else {
+        setTestEmailMsg({
+          success: false,
+          text: `Twilio Email Error: ${res.message}`
+        });
+      }
+      setTimeout(() => setTestEmailMsg(null), 7000);
+    } catch (e: any) {
+      setTestEmailMsg({ success: false, text: e?.message || 'Failed to dispatch test email' });
+      setTimeout(() => setTestEmailMsg(null), 5000);
+    } finally {
+      setSendingTestEmail(false);
+    }
   };
 
   // Complete re-verification
@@ -579,6 +672,14 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           </div>
         )}
 
+        {/* Appointment reminder email feedback banner */}
+        {reminderSuccessMsg && (
+          <div className="mb-4 p-3 bg-[#0D1E3A] border border-[#D4AF37]/50 rounded-xl text-xs text-[#FFDF78] flex items-center gap-2 animate-in fade-in duration-200">
+            <Mail className="w-4 h-4 text-[#D4AF37] shrink-0" />
+            <span>{reminderSuccessMsg}</span>
+          </div>
+        )}
+
         {/* Tab 1: Bookings Management */}
         {activeTab === 'bookings' && (
           <div className="pt-6 space-y-4 max-h-[60vh] overflow-y-auto pr-1">
@@ -657,6 +758,22 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                         <span>PDF Pass</span>
                       </button>
 
+                      {/* Email Reminder Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSendBookingReminderEmail(booking)}
+                        disabled={reminderSendingBookingId === (booking.id || booking.bookingId)}
+                        className="py-2 px-3 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-xs text-[#FFDF78] flex items-center gap-1.5 transition-all disabled:opacity-50"
+                        title="Send appointment reminder email to your inbox"
+                      >
+                        <Mail className="w-3.5 h-3.5 text-[#D4AF37]" />
+                        <span>
+                          {reminderSendingBookingId === (booking.id || booking.bookingId)
+                            ? 'Sending...'
+                            : 'Email Reminder'}
+                        </span>
+                      </button>
+
                       {canModify && (
                         <>
                           <button
@@ -731,15 +848,139 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Email Address (Modifying triggers OTP verification)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-300">
+                    Email Address
+                  </label>
+                  {editEmail.trim() && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await sendEmailOtp(editEmail.trim());
+                        setVerifyModalTarget({ target: editEmail.trim(), type: 'email' });
+                      }}
+                      className="text-[11px] text-[#FFDF78] hover:underline flex items-center gap-1 font-mono"
+                    >
+                      <Shield className="w-3 h-3 text-[#D4AF37]" />
+                      <span>Verify Email</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="email"
                   value={editEmail}
                   onChange={(e) => setEditEmail(e.target.value)}
                   className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-xs text-white"
                 />
+              </div>
+
+              {/* Email Notification Preferences Section */}
+              <div className="p-4 rounded-xl bg-[#070B14] border border-[#D4AF37]/30 space-y-3.5 mt-2">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#FFDF78]">
+                    <Bell className="w-4 h-4 text-[#D4AF37]" />
+                    <span>Email Notification Preferences</span>
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-mono">Twilio Comms</span>
+                </div>
+
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  Choose which transactional notifications you would like delivered to your email:
+                </p>
+
+                {/* Option 1: New Login Detected */}
+                <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-[#0E1628] border border-white/5">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>New Login Detected</span>
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      Receive an instant security email alert whenever your account logs in.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifyLogin}
+                      onChange={(e) => handleToggleEmailPref('newLogin', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#D4AF37]"></div>
+                  </label>
+                </div>
+
+                {/* Option 2: Order Confirmation */}
+                <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-[#0E1628] border border-white/5">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#FFDF78]" />
+                      <span>Order & Booking Confirmation</span>
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      Receive immediate email receipt, order number, and digital pass upon booking.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifyOrder}
+                      onChange={(e) => handleToggleEmailPref('orderConfirmation', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#D4AF37]"></div>
+                  </label>
+                </div>
+
+                {/* Option 3: Appointment Reminder */}
+                <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-[#0E1628] border border-white/5">
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Appointment Reminder</span>
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      Receive an appointment reminder with time slot and styling service details.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifyReminder}
+                      onChange={(e) => handleToggleEmailPref('appointmentReminder', e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#D4AF37]"></div>
+                  </label>
+                </div>
+
+                {/* Test Twilio Email Gateway Button */}
+                <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2">
+                  <span className="text-[11px] text-gray-400">
+                    Verify deliverability to your inbox:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTestTwilioEmail}
+                    disabled={sendingTestEmail}
+                    className="py-1.5 px-3 rounded-lg bg-[#D4AF37]/20 hover:bg-[#D4AF37]/35 border border-[#D4AF37]/50 text-[11px] font-bold text-[#FFDF78] flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  >
+                    <Send className="w-3 h-3 text-[#D4AF37]" />
+                    <span>{sendingTestEmail ? 'Dispatching...' : 'Send Test Email'}</span>
+                  </button>
+                </div>
+
+                {testEmailMsg && (
+                  <div
+                    className={`p-2.5 rounded-lg text-[11px] border ${
+                      testEmailMsg.success
+                        ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                        : 'bg-rose-950/70 border-rose-500/50 text-rose-200'
+                    }`}
+                  >
+                    {testEmailMsg.text}
+                  </div>
+                )}
               </div>
 
               <button

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import sendSmsHandler from './api/send-sms.ts';
+import sendEmailHandler from './api/send-email.ts';
 
 dotenv.config();
 
@@ -19,6 +20,18 @@ async function startServer() {
       await sendSmsHandler(req, res);
     } catch (err) {
       console.error('[Server] Uncaught error in /api/send-sms:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Internal server error' });
+      }
+    }
+  });
+
+  // Mount Twilio Comms Emails API endpoint
+  app.all('/api/send-email', async (req, res) => {
+    try {
+      await sendEmailHandler(req, res);
+    } catch (err) {
+      console.error('[Server] Uncaught error in /api/send-email:', err);
       if (!res.headersSent) {
         res.status(500).json({ success: false, error: 'Internal server error' });
       }

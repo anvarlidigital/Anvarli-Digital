@@ -8,6 +8,11 @@ export interface UserProfile {
   referralCode: string;
   referredBy?: string;
   phoneVerified: boolean;
+  emailNotifications?: {
+    newLogin?: boolean;
+    orderConfirmation?: boolean;
+    appointmentReminder?: boolean;
+  };
   createdAt: string;
   notes?: string;
   role?: 'admin' | 'customer';
@@ -77,6 +82,9 @@ export interface BookingItem {
   smsSid?: string;
   smsError?: string;
   smsSentAt?: string;
+  emailStatus?: 'Pending' | 'Sent' | 'Failed' | 'Disabled';
+  emailSentAt?: string;
+  emailError?: string;
   notificationStatus?: string;
 }
 

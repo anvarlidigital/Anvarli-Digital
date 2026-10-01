@@ -74,30 +74,29 @@ export async function sendEmailOtp(email: string): Promise<{ success: boolean; m
 
   otpStore.set(normalizedEmail, entry);
 
-  /*
-   * =========================================================================
-   * PRODUCTION RESEND INTEGRATION POINT:
-   * =========================================================================
-   * To send actual emails via Resend in production:
-   * 1. npm install resend
-   * 2. Add RESEND_API_KEY to your environment variables
-   * 3. Call Resend API:
-   *    const { Resend } = await import('resend');
-   *    const resend = new Resend(process.env.RESEND_API_KEY);
-   *    await resend.emails.send({
-   *      from: 'Trim & Twisted <verify@trimandtwisted.com>',
-   *      to: normalizedEmail,
-   *      subject: 'Your Trim & Twisted Verification Code',
-   *      html: `<p>Your code is <strong>${code}</strong>. Valid for 5 minutes.</p>`
-   *    });
-   * =========================================================================
-   */
+  // Dispatch real email via Twilio Comms Emails API
+  try {
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toEmail: normalizedEmail,
+        type: 'verification',
+        code,
+        customerName: normalizedEmail.split('@')[0]
+      })
+    }).catch((err) => {
+      console.warn('[Twilio Email] Async send notice:', err);
+    });
+  } catch (e) {
+    console.warn('[Twilio Email] Error triggering email verification:', e);
+  }
 
   notifyDevOtp(normalizedEmail, code, 'email');
 
   return {
     success: true,
-    message: `Verification code sent to ${normalizedEmail}`
+    message: `Verification code sent to ${normalizedEmail} via Twilio Email Gateway.`
   };
 }
 
