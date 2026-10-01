@@ -7,6 +7,7 @@ import { doc, getDoc, setDoc, runTransaction, collection, addDoc, onSnapshot } f
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
 import { formatDateDDMMYYYY } from '../utils/date';
 import { syncBookingToSupabase } from '../services/supabaseSync';
+import { sendBookingSmsNotification } from '../services/smsService';
 import confetti from 'canvas-confetti';
 import {
   AlertCircle,
@@ -449,6 +450,24 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       // Background Real-Time Sync to Supabase Table Viewer
       syncBookingToSupabase(confirmedBooking).catch((syncErr) => {
         console.warn('Background Supabase booking sync note:', syncErr);
+      });
+
+      // Dispatch Twilio Programmable SMS Booking Confirmation
+      sendBookingSmsNotification({
+        phoneNumber: confirmedBooking.customerPhone,
+        messageType: 'confirmation',
+        bookingId: confirmedBooking.bookingId,
+        clientDetails: {
+          customerName: confirmedBooking.customerName,
+          customerPhone: confirmedBooking.customerPhone,
+          date: confirmedBooking.date,
+          slot: confirmedBooking.slot,
+          stylistName: confirmedBooking.stylistName,
+          totalAmount: confirmedBooking.totalAmount,
+          status: 'Confirmed'
+        }
+      }).catch((smsErr) => {
+        console.warn('Twilio booking confirmation SMS notice:', smsErr);
       });
 
       // Cache booking in local storage so it immediately persists for this browser session
