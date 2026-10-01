@@ -227,14 +227,16 @@ export function generateBookingVoucherPdf(booking: BookingItem) {
   doc.text(`₹${booking.totalAmount}`, pageWidth - 24, y, { align: 'right' });
   y += 10;
 
-  // Payment Rule Callout
+  // Payment Rule Callout (Adjusted perfectly inside the box)
   doc.setFillColor(34, 46, 28); // Luxury Green subtle
-  doc.roundedRect(18, y, pageWidth - 36, 11, 2, 2, 'F');
+  doc.setDrawColor(60, 140, 80);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(18, y, pageWidth - 36, 12, 2, 2, 'FD');
   doc.setTextColor(160, 240, 170);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('✓ ZERO ADVANCE PAYMENT REQUIRED: PAY AFTER SERVICE AT THE SALON', pageWidth / 2, y + 7, { align: 'center' });
-  y += 17;
+  doc.setFontSize(8);
+  doc.text('✓ ZERO ADVANCE PAYMENT REQUIRED • PAY AFTER SERVICE AT THE SALON', pageWidth / 2, y + 7.5, { align: 'center' });
+  y += 18;
 
   // Salon Location & Contact Footer in Pass
   doc.setFillColor(18, 26, 42);

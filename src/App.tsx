@@ -20,6 +20,7 @@ import type {
 } from './types';
 
 // Components
+import { CheckCircle2, X } from 'lucide-react';
 import { ThreeLoadingScreen } from './components/ThreeLoadingScreen';
 import { ThreeSalonScene } from './components/ThreeSalonScene';
 import { Header } from './components/Header';
@@ -78,6 +79,33 @@ function MainApp() {
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [flyerModalOpen, setFlyerModalOpen] = useState(false);
+  const [bookingSuccessNote, setBookingSuccessNote] = useState<BookingItem | null>(null);
+
+  // Auto dismiss booking success note after 15 seconds
+  useEffect(() => {
+    if (bookingSuccessNote) {
+      const timer = setTimeout(() => setBookingSuccessNote(null), 15000);
+      return () => clearTimeout(timer);
+    }
+  }, [bookingSuccessNote]);
+
+  // Support #admin in URL or ?admin=true to automatically open Admin Panel
+  useEffect(() => {
+    const handleUrlRoute = () => {
+      const hash = window.location.hash.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      if (hash === '#admin' || hash === '#/admin' || search.includes('admin=true')) {
+        setAdminPanelOpen(true);
+      }
+    };
+    handleUrlRoute();
+    window.addEventListener('hashchange', handleUrlRoute);
+    window.addEventListener('popstate', handleUrlRoute);
+    return () => {
+      window.removeEventListener('hashchange', handleUrlRoute);
+      window.removeEventListener('popstate', handleUrlRoute);
+    };
+  }, []);
 
   // Initial Seeding on first boot
   useEffect(() => {
@@ -321,10 +349,62 @@ function MainApp() {
         coupons={coupons}
         settings={settings}
         initialSelectedServices={selectedServiceIds}
-        onBookingSuccess={() => {
+        onBookingSuccess={(booking) => {
           setSelectedServiceIds([]);
+          setBookingSuccessNote(booking);
         }}
       />
+
+      {/* Global Booking Successful Notification Note Toast */}
+      {bookingSuccessNote && (
+        <div className="fixed bottom-20 left-4 right-4 sm:left-auto sm:right-6 sm:w-96 z-50 p-4 rounded-2xl bg-[#0D1527] border-2 border-emerald-400 text-white shadow-[0_10px_40px_rgba(16,185,129,0.35)] animate-in slide-in-from-bottom-5">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400 flex items-center justify-center shrink-0 text-emerald-300 mt-0.5">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h5 className="font-['Cinzel'] text-sm font-bold text-emerald-300">
+                  Booking Confirmed!
+                </h5>
+                <button
+                  onClick={() => setBookingSuccessNote(null)}
+                  className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10"
+                  title="Dismiss notification"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-gray-200 mt-1 font-sans">
+                Pass ID: <span className="font-mono text-[#FFDF78] font-bold">{bookingSuccessNote.bookingId}</span>
+              </p>
+              <p className="text-[11px] text-gray-300 mt-0.5 font-sans">
+                {bookingSuccessNote.customerName} &bull; {bookingSuccessNote.date} ({bookingSuccessNote.slot})
+              </p>
+              <p className="text-[11px] text-emerald-300 font-semibold mt-1">
+                Zero Advance &bull; Pay ₹{bookingSuccessNote.totalAmount} at salon counter
+              </p>
+              <div className="mt-2.5 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setDashboardOpen(true);
+                    setBookingSuccessNote(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow"
+                >
+                  View in Dashboard
+                </button>
+                <button
+                  onClick={() => setBookingSuccessNote(null)}
+                  className="text-xs text-gray-400 hover:text-white px-2 py-1"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Customer Dashboard Modal */}
       <CustomerDashboard
@@ -332,6 +412,10 @@ function MainApp() {
         onClose={() => setDashboardOpen(false)}
         settings={settings}
         onRefreshBookings={() => {}}
+        onNavigateAdmin={() => {
+          setDashboardOpen(false);
+          setAdminPanelOpen(true);
+        }}
       />
 
       {/* Sign In / Sign Up Modal */}

@@ -27,6 +27,7 @@ import {
   Download,
   Gift,
   History,
+  Lock,
   MessageCircle,
   Share2,
   Sparkles,
@@ -41,6 +42,7 @@ interface CustomerDashboardProps {
   onClose: () => void;
   settings: SalonSettings | null;
   onRefreshBookings: () => void;
+  onNavigateAdmin?: () => void;
 }
 
 export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
@@ -48,6 +50,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onClose,
   settings,
   onRefreshBookings,
+  onNavigateAdmin,
 }) => {
   const { profile, updateProfileDetails, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'bookings' | 'profile' | 'loyalty'>('bookings');
@@ -439,8 +442,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
-      <div className="relative w-full max-w-4xl bg-[#0D1527] border-2 border-[#D4AF37]/50 rounded-3xl p-6 sm:p-8 shadow-[0_0_60px_rgba(212,175,55,0.25)] text-[#F3EFE0] my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 xs:p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div className="relative w-full max-w-4xl bg-[#0D1527] border-2 border-[#D4AF37]/50 rounded-2xl sm:rounded-3xl p-3.5 xs:p-5 sm:p-8 shadow-[0_0_60px_rgba(212,175,55,0.25)] text-[#F3EFE0] my-2 sm:my-8 max-h-[96vh] sm:max-h-[92vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -507,14 +510,24 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <div className="p-3 rounded-2xl bg-[#070B14] border border-[#D4AF37]/40 text-center">
               <span className="text-[10px] uppercase text-gray-400 font-mono block">Loyalty Points</span>
               <span className="text-xl font-mono font-bold text-[#FFDF78]">{profile.loyaltyPoints || 100}</span>
             </div>
+            {onNavigateAdmin && (
+              <button
+                onClick={onNavigateAdmin}
+                className="py-2.5 px-3 rounded-xl bg-[#D4AF37]/20 border border-[#D4AF37]/60 text-xs font-bold text-[#FFDF78] hover:bg-[#D4AF37]/35 flex items-center gap-1.5 transition-all shadow"
+                title="Open Salon Owner / Admin Portal"
+              >
+                <Lock className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>Admin Console</span>
+              </button>
+            )}
             <button
               onClick={() => { signOut(); onClose(); }}
-              className="py-2.5 px-4 rounded-xl border border-white/10 hover:border-red-500/50 text-xs text-gray-400 hover:text-red-300 transition-colors"
+              className="py-2.5 px-3.5 rounded-xl border border-white/10 hover:border-red-500/50 text-xs text-gray-400 hover:text-red-300 transition-colors"
             >
               Sign Out
             </button>

@@ -50,9 +50,17 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   onBookingSuccess,
 }) => {
   const { profile } = useAuth();
+  const modalContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Multi-step: 'picker' -> 'success'
   const [step, setStep] = useState<'picker' | 'success'>('picker');
+
+  // Auto scroll to top when booking is confirmed
+  useEffect(() => {
+    if (step === 'success') {
+      modalContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [step]);
 
   // Selected Services
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedServices);
@@ -451,27 +459,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       setStep('success');
       onBookingSuccess(confirmedBooking);
 
-      // Automatically redirect details to owner's WhatsApp number
-      const srvNames = confirmedBooking.services.map((s) => s.name).join(', ');
-      const whatsappMsg = `Hello Trim & Twisted! New Appointment Booking Confirmed:
-• Booking ID: ${confirmedBooking.bookingId}
-• Name: ${confirmedBooking.customerName}
-• Phone: ${confirmedBooking.customerPhone}
-• Date: ${formatDateDDMMYYYY(confirmedBooking.date)}
-• Slot: ${confirmedBooking.slot}
-• Services: ${srvNames}
-• Total Payable at Salon: ₹${confirmedBooking.totalAmount}
-• Status: CONFIRMED`;
-
-      try {
-        window.open(`https://wa.me/919647345945?text=${encodeURIComponent(whatsappMsg)}`, '_blank');
-      } catch {}
-
-      // Automatically generate & download booking receipt PDF
-      try {
-        generateBookingVoucherPdf(confirmedBooking);
-      } catch {}
-
       // Trigger Confetti Celebration!
       try {
         confetti({
@@ -558,8 +545,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-[#0D1527] border-2 border-[#D4AF37]/50 rounded-3xl p-6 sm:p-8 shadow-[0_0_60px_rgba(212,175,55,0.25)] text-[#F3EFE0] my-8 max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 xs:p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div
+        ref={modalContainerRef}
+        className="relative w-full max-w-3xl bg-[#0D1527] border-2 border-[#D4AF37]/50 rounded-2xl sm:rounded-3xl p-3.5 xs:p-5 sm:p-8 shadow-[0_0_60px_rgba(212,175,55,0.25)] text-[#F3EFE0] my-2 sm:my-8 max-h-[96vh] sm:max-h-[92vh] overflow-y-auto"
+      >
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -1129,7 +1119,30 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               CONFIRMED ORDER SUCCESS SCREEN
               ========================================================================= */
           createdBooking && (
-            <div className="text-center py-4 space-y-6">
+            <div className="text-center py-2 space-y-6">
+              {/* Prominent Booking Successful Notification Note */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950 via-[#062417] to-emerald-950 border-2 border-emerald-400 text-emerald-100 shadow-[0_0_35px_rgba(16,185,129,0.35)] flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left animate-in zoom-in-95 duration-300">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center shrink-0 text-emerald-300 shadow-[0_0_20px_rgba(52,211,153,0.3)]">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                    <span className="font-['Cinzel'] text-xl sm:text-2xl font-black text-emerald-300 tracking-wider">
+                      BOOKING SUCCESSFUL!
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-400/20 border border-emerald-400/50 text-xs font-mono font-bold text-emerald-200">
+                      PASS #{createdBooking.bookingId}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-emerald-100/90 mt-1.5 leading-relaxed font-sans">
+                    Your appointment has been officially confirmed on our salon roster! Your seat is reserved for {formatDateDDMMYYYY(createdBooking.date)} ({createdBooking.slot}).
+                  </p>
+                  <div className="mt-2 text-[11px] font-bold text-amber-300 flex items-center justify-center sm:justify-start gap-1.5 font-mono">
+                    <span>✓ Zero advance payment required: Pay ₹{createdBooking.totalAmount} at salon counter</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Salon Logo */}
               <div className="w-20 h-20 mx-auto rounded-3xl overflow-hidden border-2 border-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.4)] bg-[#070B14]">
                 <img

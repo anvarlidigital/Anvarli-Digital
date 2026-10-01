@@ -103,7 +103,7 @@ export const BeforeAfterSlider: React.FC = () => {
         onMouseLeave={() => setIsDragging(false)}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
-        className="relative w-full max-w-4xl mx-auto h-[380px] sm:h-[480px] rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_50px_rgba(0,0,0,0.8)] cursor-ew-resize select-none"
+        className="relative w-full max-w-4xl mx-auto h-[280px] xs:h-[340px] sm:h-[440px] md:h-[480px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_50px_rgba(0,0,0,0.8)] cursor-ew-resize select-none"
       >
         {/* After Image (Background full) */}
         <img

@@ -14,7 +14,8 @@ interface AuthContextType {
   user: FirebaseUser | null;
   profile: UserProfile | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: (manualEmail?: string, manualName?: string) => Promise<void>;
+  loginWithGoogleDetails: (email: string, name: string, photoURL?: string) => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
   setCustomUserProfile: (profile: UserProfile) => void;
@@ -67,11 +68,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error fetching user profile:', err);
         }
       } else {
-        // Check if custom OTP user is stored in session
+        // Check if custom user is stored in session
         const stored = sessionStorage.getItem('tt_custom_user');
         if (stored) {
           try {
-            setProfile(JSON.parse(stored));
+            const parsed = JSON.parse(stored);
+            // If it had the old dummy name, clean it up
+            if (parsed.name === 'Google VIP Guest' && parsed.email === 'guest@trimandtwisted.com') {
+              sessionStorage.removeItem('tt_custom_user');
+              setProfile(null);
+            } else {
+              setProfile(parsed);
+            }
           } catch {
             setProfile(null);
           }
@@ -85,27 +93,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
+  const loginWithGoogleDetails = async (email: string, name: string, photoURL?: string) => {
+    const cleanEmail = email.trim();
+    const cleanName = name.trim() || cleanEmail.split('@')[0] || 'VIP Guest';
+    const uid = `ggl_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    const realGoogleProfile: UserProfile = {
+      uid,
+      name: cleanName,
+      email: cleanEmail,
+      phone: '',
+      loyaltyPoints: 100,
+      referralCode: `TT-${cleanName.substring(0, 3).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`,
+      phoneVerified: false,
+      photoURL:
+        photoURL ||
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      createdAt: new Date().toISOString()
+    };
+
+    setCustomUserProfile(realGoogleProfile);
     try {
+      await setDoc(doc(db, 'users', uid), realGoogleProfile, { merge: true });
+    } catch (e) {
+      console.warn('Google profile save note:', e);
+    }
+  };
+
+  const signInWithGoogle = async (manualEmail?: string, manualName?: string) => {
+    if (manualEmail) {
+      await loginWithGoogleDetails(manualEmail, manualName || '');
+      return;
+    }
+
+    try {
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.warn('Google Sign-in popup notice:', err?.code, err?.message);
-      // Graceful fallback for iframe sandbox, unauthorized-domain, or popup restrictions
-      const fallbackProfile: UserProfile = {
-        uid: `google_${Date.now()}`,
-        name: 'Google VIP Guest',
-        email: 'guest@trimandtwisted.com',
-        phone: '',
-        loyaltyPoints: 100,
-        referralCode: `TT-GGL${Math.floor(100 + Math.random() * 900)}`,
-        phoneVerified: false,
-        photoURL: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
-        createdAt: new Date().toISOString()
-      };
-      setCustomUserProfile(fallbackProfile);
-      try {
-        await setDoc(doc(db, 'users', fallbackProfile.uid), fallbackProfile, { merge: true });
-      } catch {}
+      // If user closed popup explicitly, do not create any dummy account!
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        throw new Error('Google Sign-In was cancelled.');
+      }
+      // Re-throw so caller can display the Google Account details prompt
+      throw err;
     }
   };
 
@@ -154,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         loading,
         signInWithGoogle,
+        loginWithGoogleDetails,
         signInWithApple,
         signOut,
         setCustomUserProfile,

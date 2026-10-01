@@ -353,12 +353,12 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
       : '#FFDF78';
 
   return (
-    <div className="relative w-full h-[360px] xs:h-[400px] sm:h-[500px] md:h-[580px] lg:h-[640px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
+    <div className="relative w-full h-[320px] xs:h-[370px] sm:h-[480px] md:h-[560px] lg:h-[620px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
       {/* Top Interactive HUD Bar */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
         {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0D1527]/90 border border-[#D4AF37]/60 text-[#FFDF78] text-xs font-semibold backdrop-blur-md shadow-lg pointer-events-auto">
-          <Crown className="w-3.5 h-3.5 text-[#FFDF78]" />
+        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-[#0D1527]/90 border border-[#D4AF37]/60 text-[#FFDF78] text-[11px] sm:text-xs font-semibold backdrop-blur-md shadow-lg pointer-events-auto">
+          <Crown className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-[#FFDF78]" />
           <span>Interactive 3D Salon Sanctuary</span>
         </div>
 
@@ -497,28 +497,28 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
       )}
 
       {/* Bottom Interactive Callout Banner inside 3D View */}
-      <div className="absolute bottom-4 left-4 right-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-[#070B14]/85 border border-[#D4AF37]/50 backdrop-blur-xl shadow-2xl">
-        <div className="flex items-center gap-3 text-left">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#D4AF37] to-[#805B09] flex items-center justify-center text-[#070B14] font-bold shadow-md shrink-0">
-            <SparklesIcon className="w-5 h-5 fill-current" />
+      <div className="absolute bottom-2.5 sm:bottom-4 left-2.5 sm:left-4 right-2.5 sm:right-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3 p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-[#070B14]/90 border border-[#D4AF37]/50 backdrop-blur-xl shadow-2xl">
+        <div className="flex items-center gap-2.5 sm:gap-3 text-left w-full sm:w-auto">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-gradient-to-tr from-[#D4AF37] to-[#805B09] flex items-center justify-center text-[#070B14] font-bold shadow-md shrink-0">
+            <SparklesIcon className="w-4 sm:w-5 h-4 sm:h-5 fill-current" />
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-mono text-[#D4AF37] tracking-wider block font-semibold">
+          <div className="min-w-0">
+            <span className="text-[9px] sm:text-[10px] uppercase font-mono text-[#D4AF37] tracking-wider block font-semibold truncate">
               Currently Selected Station
             </span>
-            <h4 className="font-['Cinzel'] text-sm sm:text-base font-bold text-white">
+            <h4 className="font-['Cinzel'] text-xs sm:text-base font-bold text-white truncate">
               {activeStationName}
             </h4>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          <span className="hidden md:inline text-[11px] text-gray-400 font-mono">
+        <div className="flex items-center gap-2 sm:gap-2.5 w-full sm:w-auto justify-end">
+          <span className="hidden lg:inline text-[11px] text-gray-400 font-mono">
             Drag to Rotate 360° &bull; Scroll to Zoom
           </span>
           <button
             onClick={onOpenBooking}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(212,175,55,0.4)] flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-[11px] sm:text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(212,175,55,0.4)] flex items-center justify-center gap-1.5 whitespace-nowrap"
           >
             <Calendar className="w-3.5 h-3.5" />
             <span>Book This Station</span>

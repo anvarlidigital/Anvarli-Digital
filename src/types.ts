@@ -10,6 +10,8 @@ export interface UserProfile {
   phoneVerified: boolean;
   createdAt: string;
   notes?: string;
+  role?: 'admin' | 'customer';
+  isAdmin?: boolean;
 }
 
 export interface ServiceItem {

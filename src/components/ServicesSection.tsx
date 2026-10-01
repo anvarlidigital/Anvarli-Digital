@@ -129,16 +129,16 @@ export const ServicesSection: React.FC<ServicesSectionProps> = ({
 
       {/* Selected Items Floating Action Bar */}
       {selectedServiceIds.length > 0 && (
-        <div className="sticky top-24 z-30 mb-8 p-4 rounded-2xl bg-[#0D1527]/95 border-2 border-[#D4AF37] shadow-[0_10px_40px_rgba(212,175,55,0.3)] backdrop-blur-xl flex items-center justify-between animate-in slide-in-from-top-4 duration-300">
+        <div className="sticky top-20 sm:top-24 z-30 mb-8 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#0D1527]/95 border-2 border-[#D4AF37] shadow-[0_10px_40px_rgba(212,175,55,0.3)] backdrop-blur-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#D4AF37] text-[#070B14] flex items-center justify-center font-bold text-sm">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#D4AF37] text-[#070B14] flex items-center justify-center font-bold text-sm shrink-0">
               {selectedServiceIds.length}
             </div>
-            <div>
-              <span className="text-xs text-gray-400 uppercase tracking-wider block">
+            <div className="min-w-0">
+              <span className="text-[10px] sm:text-xs text-gray-400 uppercase tracking-wider block truncate">
                 Selected for Booking
               </span>
-              <span className="text-sm font-semibold text-[#FFDF78]">
+              <span className="text-xs sm:text-sm font-semibold text-[#FFDF78] truncate block">
                 {selectedServiceIds.length} {selectedServiceIds.length === 1 ? 'service' : 'services'} added to pass
               </span>
             </div>
@@ -146,7 +146,7 @@ export const ServicesSection: React.FC<ServicesSectionProps> = ({
 
           <button
             onClick={onOpenBooking}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md"
+            className="w-full sm:w-auto px-5 sm:px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md text-center"
           >
             Continue to Slot Selection
           </button>

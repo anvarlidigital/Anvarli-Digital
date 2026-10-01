@@ -188,10 +188,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateAdmin }) => {
               <li className="pt-2">
                 <button
                   onClick={onNavigateAdmin}
-                  className="text-gray-500 hover:text-white transition-colors flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-[#D4AF37]/20 border border-white/10 hover:border-[#D4AF37]/40 text-[#FFDF78] hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold"
+                  title="Salon Owner & Staff Portal"
                 >
-                  <Lock className="w-3 h-3 text-[#D4AF37]" />
-                  <span>Admin Management Console</span>
+                  <Lock className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Salon Owner & Staff Portal</span>
                 </button>
               </li>
             </ul>
