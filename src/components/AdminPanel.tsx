@@ -11,7 +11,8 @@ import type {
   GalleryItem,
   SalonSettings
 } from '../types';
-import { db, uploadImageOrMedia, resyncOfficialServicesMenu } from '../services/firebase';
+import { db, uploadImageOrMedia, resyncOfficialServicesMenu, clearAllBookingsAndResetSlots } from '../services/firebase';
+import { formatDateDDMMYYYY } from '../utils/date';
 import {
   collection,
   doc,
@@ -29,6 +30,7 @@ import {
   AlertCircle,
   BarChart3,
   Calendar,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -48,6 +50,7 @@ import {
   MessageCircle,
   MessageSquare,
   Plus,
+  RotateCcw,
   Scissors,
   Settings,
   Sparkles,
@@ -55,6 +58,8 @@ import {
   Tag,
   Trash2,
   TrendingUp,
+  Upload,
+  User,
   UserCheck,
   Users,
   Video,
@@ -121,53 +126,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
       // 1. Bookings
       const bSnap = await getDocs(collection(db, 'bookings'));
       const bList: BookingItem[] = [];
-      bSnap.forEach((d) => bList.push({ id: d.id, ...(d.data() as any) }));
+      bSnap.forEach((d) => bList.push({ ...(d.data() as any), id: d.id }));
       bList.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
       setBookings(bList);
 
       // 2. Services
       const sSnap = await getDocs(collection(db, 'services'));
       const sList: ServiceItem[] = [];
-      sSnap.forEach((d) => sList.push({ id: d.id, ...(d.data() as any) }));
+      sSnap.forEach((d) => sList.push({ ...(d.data() as any), id: d.id }));
       sList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setServices(sList);
 
       // 3. Categories
       const cSnap = await getDocs(collection(db, 'categories'));
       const cList: CategoryItem[] = [];
-      cSnap.forEach((d) => cList.push({ id: d.id, ...(d.data() as any) }));
+      cSnap.forEach((d) => cList.push({ ...(d.data() as any), id: d.id }));
       cList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setCategories(cList);
 
       // 4. Staff
       const stSnap = await getDocs(collection(db, 'staff'));
       const stList: StaffItem[] = [];
-      stSnap.forEach((d) => stList.push({ id: d.id, ...(d.data() as any) }));
+      stSnap.forEach((d) => stList.push({ ...(d.data() as any), id: d.id }));
       setStaff(stList);
 
       // 5. Salary Payments
       const salSnap = await getDocs(collection(db, 'salaryPayments'));
       const salList: SalaryPaymentItem[] = [];
-      salSnap.forEach((d) => salList.push({ id: d.id, ...(d.data() as any) }));
+      salSnap.forEach((d) => salList.push({ ...(d.data() as any), id: d.id }));
       setSalaryPayments(salList);
 
       // 6. Coupons
       const cpSnap = await getDocs(collection(db, 'coupons'));
       const cpList: CouponItem[] = [];
-      cpSnap.forEach((d) => cpList.push({ id: d.id, ...(d.data() as any) }));
+      cpSnap.forEach((d) => cpList.push({ ...(d.data() as any), id: d.id }));
       setCoupons(cpList);
 
       // 7. Gallery
       const gSnap = await getDocs(collection(db, 'gallery'));
       const gList: GalleryItem[] = [];
-      gSnap.forEach((d) => gList.push({ id: d.id, ...(d.data() as any) }));
+      gSnap.forEach((d) => gList.push({ ...(d.data() as any), id: d.id }));
       gList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setGallery(gList);
 
       // 8. Reviews
       const rSnap = await getDocs(collection(db, 'reviews'));
       const rList: ReviewItem[] = [];
-      rSnap.forEach((d) => rList.push({ id: d.id, ...(d.data() as any) }));
+      rSnap.forEach((d) => rList.push({ ...(d.data() as any), id: d.id }));
       setReviews(rList);
 
       // 9. Settings
@@ -928,6 +933,24 @@ const AdminServicesManager: React.FC<{
   const [active, setActive] = useState(true);
   const [sortOrder, setSortOrder] = useState<number>(1);
   const [image, setImage] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setImageError(null);
+    try {
+      const url = await uploadImageOrMedia(file);
+      setImage(url);
+    } catch (err: any) {
+      console.error('Service image upload error:', err);
+      setImageError(err?.message || 'Failed to upload image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
   const [uploading, setUploading] = useState(false);
 
   // Category Manager modal
@@ -1072,6 +1095,7 @@ const AdminServicesManager: React.FC<{
         <table className="w-full text-left text-xs text-gray-300">
           <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
             <tr>
+              <th className="py-3 px-4">Photo</th>
               <th className="py-3 px-4">Service Name</th>
               <th className="py-3 px-4">Category</th>
               <th className="py-3 px-4">Price</th>
@@ -1083,6 +1107,38 @@ const AdminServicesManager: React.FC<{
           <tbody className="divide-y divide-white/5">
             {services.map((s) => (
               <tr key={s.id} className="hover:bg-white/5 transition-colors">
+                <td className="py-3 px-4">
+                  <div className="relative group w-12 h-12 rounded-xl overflow-hidden border border-[#D4AF37]/40 bg-[#0E1628] flex items-center justify-center">
+                    {s.image ? (
+                      <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="w-5 h-5 text-[#D4AF37]/40" />
+                    )}
+                    <label
+                      title="Upload service image from device files"
+                      className="absolute inset-0 bg-black/75 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-[9px] text-[#FFDF78] font-bold cursor-pointer transition-opacity"
+                    >
+                      <Upload className="w-3.5 h-3.5 mb-0.5" />
+                      <span>Upload</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            const url = await uploadImageOrMedia(file);
+                            await updateDoc(doc(db, 'services', s.id), { image: url });
+                            onRefresh();
+                          } catch (err: any) {
+                            console.error('Image upload failed:', err);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </td>
                 <td className="py-3 px-4 font-medium text-white">
                   {s.name}
                   {s.note && <span className="text-[10px] text-emerald-400 block">{s.note}</span>}
@@ -1108,13 +1164,15 @@ const AdminServicesManager: React.FC<{
                 <td className="py-3 px-4 text-right space-x-2">
                   <button
                     onClick={() => openEdit(s)}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-[#D4AF37]/20 text-[#FFDF78]"
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-[#D4AF37]/20 text-[#FFDF78] cursor-pointer"
+                    title="Edit Service Details & Image"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => handleDeleteService(s.id)}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/20 text-red-400"
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/20 text-red-400 cursor-pointer"
+                    title="Delete Service"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1216,6 +1274,50 @@ const AdminServicesManager: React.FC<{
                   onChange={(e) => setNote(e.target.value)}
                   className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
                 />
+              </div>
+
+              {/* Service Image Upload from Device */}
+              <div className="p-3 rounded-2xl bg-[#070B14] border border-white/10 space-y-2">
+                <label className="block text-gray-300 font-semibold text-xs flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Service Photo (Upload from Device)</span>
+                </label>
+
+                <div className="flex items-center gap-3">
+                  {image ? (
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#D4AF37] bg-[#0E1628] shrink-0">
+                      <img src={image} alt="Service preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setImage('')}
+                        className="absolute top-1 right-1 p-0.5 bg-black/80 text-red-400 rounded-full hover:text-white"
+                        title="Remove photo"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl border border-dashed border-[#D4AF37]/40 bg-[#0E1628] flex items-center justify-center text-gray-500 shrink-0">
+                      <Camera className="w-6 h-6 text-[#D4AF37]/50" />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 text-xs font-bold text-[#FFDF78] cursor-pointer transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{uploadingImage ? 'Uploading Image...' : 'Choose Image File'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingImage}
+                        onChange={handleImageFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+                    {imageError && <p className="text-[10px] text-red-400">{imageError}</p>}
+                    <p className="text-[10px] text-gray-400">Select PNG, JPG, or WebP file from this device.</p>
+                  </div>
+                </div>
               </div>
 
               <div className="flex items-center gap-6 pt-2">
@@ -1323,8 +1425,13 @@ const AdminBookingsManager: React.FC<{
   settings: SalonSettings | null;
   onRefresh: () => void;
 }> = ({ bookings, services, staff, onRefresh }) => {
+  const [localBookings, setLocalBookings] = useState<BookingItem[]>(bookings);
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [filterDate, setFilterDate] = useState<string>('');
+
+  useEffect(() => {
+    setLocalBookings(bookings);
+  }, [bookings]);
 
   // Walk-in booking modal state
   const [walkinOpen, setWalkinOpen] = useState(false);
@@ -1334,47 +1441,94 @@ const AdminBookingsManager: React.FC<{
   const [walkinSlot, setWalkinSlot] = useState(APP_CONFIG.booking.slots[0]);
   const [walkinServiceIds, setWalkinServiceIds] = useState<string[]>([]);
 
-  const filteredBookings = bookings.filter((b) => {
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [clearingSlots, setClearingSlots] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const filteredBookings = localBookings.filter((b) => {
     const matchStatus = filterStatus === 'All' || b.status === filterStatus;
     const matchDate = !filterDate || b.date === filterDate;
     return matchStatus && matchDate;
   });
 
+  const handleClearSlots = async () => {
+    setClearingSlots(true);
+    try {
+      await clearAllBookingsAndResetSlots();
+      setLocalBookings([]);
+      setConfirmClearOpen(false);
+      setActionMsg('All slots are now 100% empty and all bookings cleared.');
+      setTimeout(() => setActionMsg(null), 4000);
+      onRefresh();
+    } catch (err: any) {
+      console.error('Error clearing slots:', err);
+      setActionMsg('Error clearing slots: ' + (err?.message || 'Failed'));
+    } finally {
+      setClearingSlots(false);
+    }
+  };
+
   const handleUpdateStatus = async (
     booking: BookingItem,
     newStatus: BookingItem['status']
   ) => {
-    // If cancelling, release seat capacity in slotUsage
-    if (newStatus === 'Cancelled' && booking.status !== 'Cancelled') {
-      const slotKey = booking.slotKey || `${booking.date}_${encodeURIComponent(booking.slot)}`;
-      const slotUsageRef = doc(db, 'slotUsage', slotKey);
-      try {
-        await runTransaction(db, async (t) => {
-          const snap = await t.get(slotUsageRef);
+    const targetDocId = booking.id || booking.bookingId;
+    setUpdatingId(targetDocId);
+
+    // Optimistic UI update immediately
+    setLocalBookings((prev) =>
+      prev.map((b) =>
+        (b.id === booking.id || b.bookingId === booking.bookingId)
+          ? { ...b, status: newStatus }
+          : b
+      )
+    );
+
+    try {
+      // 1. Release seat capacity in slotUsage if cancelling or marking no-show
+      const isReleasing = (newStatus === 'Cancelled' || newStatus === 'No-show') && booking.status !== 'Cancelled' && booking.status !== 'No-show';
+      if (isReleasing) {
+        const slotKey = booking.slotKey || `${booking.date}_${encodeURIComponent(booking.slot)}`;
+        const slotUsageRef = doc(db, 'slotUsage', slotKey);
+        try {
+          const snap = await getDoc(slotUsageRef);
           if (snap.exists()) {
             const data = snap.data();
             if (booking.poolType === 'haircut') {
-              t.update(slotUsageRef, {
+              await updateDoc(slotUsageRef, {
                 haircutCount: Math.max(0, (data.haircutCount || 1) - 1),
               });
             } else {
-              t.update(slotUsageRef, {
+              await updateDoc(slotUsageRef, {
                 otherCount: Math.max(0, (data.otherCount || 1) - 1),
               });
             }
           }
-        });
-      } catch (err) {
-        console.warn('Could not release slot on cancel:', err);
+        } catch (err) {
+          console.warn('Slot release notice:', err);
+        }
       }
+
+      // 2. Update booking document with setDoc merge
+      if (booking.id) {
+        await setDoc(doc(db, 'bookings', booking.id), { status: newStatus }, { merge: true });
+      }
+      if (booking.bookingId && booking.bookingId !== booking.id) {
+        await setDoc(doc(db, 'bookings', booking.bookingId), { status: newStatus }, { merge: true }).catch(() => {});
+      }
+      
+      setActionMsg(`Booking ${booking.bookingId} successfully updated to ${newStatus}.`);
+      setTimeout(() => setActionMsg(null), 3500);
+      onRefresh();
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+      setActionMsg('Failed to update status: ' + (err?.message || 'Error'));
+      // Revert on error
+      setLocalBookings(bookings);
+    } finally {
+      setUpdatingId(null);
     }
-
-    await updateDoc(doc(db, 'bookings', booking.id), { status: newStatus });
-    onRefresh();
-
-    // Offer to notify customer via WhatsApp
-    const msg = `Hello ${booking.customerName}, this is Trim & Twisted Salon. Your appointment (${booking.bookingId}) on ${booking.date} at ${booking.slot} is now ${newStatus.toUpperCase()}.`;
-    window.open(`https://wa.me/91${booking.customerPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   const handleAddWalkin = async (e: React.FormEvent) => {
@@ -1470,14 +1624,69 @@ const AdminBookingsManager: React.FC<{
           </p>
         </div>
 
-        <button
-          onClick={() => setWalkinOpen(true)}
-          className="px-4 py-2 rounded-xl bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase flex items-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Walk-in Booking</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setConfirmClearOpen(true)}
+            disabled={clearingSlots}
+            className="px-3.5 py-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Empty all full slots and clear previous test reservations"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-red-400" />
+            <span>{clearingSlots ? 'Resetting Slots...' : 'Empty All Slots & Clear Bookings'}</span>
+          </button>
+          <button
+            onClick={() => setWalkinOpen(true)}
+            className="px-4 py-2 rounded-xl bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Walk-in Booking</span>
+          </button>
+        </div>
       </div>
+
+      {actionMsg && (
+        <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{actionMsg}</span>
+        </div>
+      )}
+
+      {/* Confirmation Modal to Empty All Slots */}
+      {confirmClearOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#0D1527] border-2 border-red-500/60 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-red-950/80 border border-red-500/50 flex items-center justify-center mx-auto text-red-400">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-['Cinzel'] text-xl font-bold text-white">
+                Empty All Slots & Clear Bookings?
+              </h4>
+              <p className="text-xs text-gray-300 mt-2 leading-relaxed">
+                This will reset each and every slot in the salon system to 100% free capacity, and clear all pending/previous bookings.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                disabled={clearingSlots}
+                onClick={() => setConfirmClearOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-white/10 text-xs font-semibold text-gray-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={clearingSlots}
+                onClick={handleClearSlots}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider"
+              >
+                {clearingSlots ? 'Resetting...' : 'Yes, Empty All Slots'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1557,31 +1766,70 @@ const AdminBookingsManager: React.FC<{
             {/* Admin Status Actions */}
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => handleUpdateStatus(b, 'Completed')}
-                className="px-3 py-1.5 rounded-lg bg-emerald-950 border border-emerald-500/50 text-emerald-300 text-xs font-semibold hover:bg-emerald-900/60"
+                type="button"
+                onClick={() => handleUpdateStatus(b, 'Confirmed')}
+                disabled={updatingId === (b.id || b.bookingId)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  b.status === 'Confirmed'
+                    ? 'bg-emerald-600 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)] font-bold'
+                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-emerald-300 hover:bg-emerald-950/60'
+                }`}
+                title="Mark appointment as Confirmed"
               >
-                Mark Completed
+                <Check className="w-3.5 h-3.5" />
+                <span>Confirmed</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => handleUpdateStatus(b, 'No-show')}
-                className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-600 text-gray-300 text-xs font-semibold"
+                disabled={updatingId === (b.id || b.bookingId)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  b.status === 'No-show'
+                    ? 'bg-amber-600 text-white shadow-[0_0_12px_rgba(217,119,6,0.4)] font-bold'
+                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-amber-300 hover:bg-amber-950/60'
+                }`}
+                title="Mark customer as Not Shown Up (releases capacity)"
               >
-                Mark No-Show
+                <Clock className="w-3.5 h-3.5" />
+                <span>Not Shown Up</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => handleUpdateStatus(b, 'Cancelled')}
-                className="px-3 py-1.5 rounded-lg bg-red-950 border border-red-500/50 text-red-300 text-xs font-semibold"
+                disabled={updatingId === (b.id || b.bookingId)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  b.status === 'Cancelled'
+                    ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)] font-bold'
+                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-red-300 hover:bg-red-950/60'
+                }`}
+                title="Cancel appointment (releases capacity)"
               >
-                Cancel
+                <X className="w-3.5 h-3.5" />
+                <span>Cancel</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(b, 'Completed')}
+                disabled={updatingId === (b.id || b.bookingId)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  b.status === 'Completed'
+                    ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.4)] font-bold'
+                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-blue-300 hover:bg-blue-950/60'
+                }`}
+                title="Mark as Completed after service at salon"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Completed</span>
               </button>
 
               <a
-                href={`https://wa.me/91${b.customerPhone}`}
+                href={`https://wa.me/91${b.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hello ${b.customerName}, this is Trim & Twisted Salon regarding your appointment ${b.bookingId} on ${formatDateDDMMYYYY(b.date)} at ${b.slot}.`)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="p-2 rounded-lg bg-[#25D366]/20 border border-[#25D366]/40 text-[#25D366]"
+                className="p-2 rounded-lg bg-[#25D366]/20 border border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/30 transition-colors"
                 title="Direct WhatsApp Message"
               >
                 <MessageCircle className="w-4 h-4" />
@@ -1713,6 +1961,24 @@ const AdminStaffManager: React.FC<{
   const [salary, setSalary] = useState('');
   const [status, setStatus] = useState<'Active' | 'Former'>('Active');
   const [photoURL, setPhotoURL] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const handleStaffPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    setPhotoError(null);
+    try {
+      const url = await uploadImageOrMedia(file);
+      setPhotoURL(url);
+    } catch (err: any) {
+      console.error('Staff photo upload error:', err);
+      setPhotoError(err?.message || 'Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
   const [dateJoined, setDateJoined] = useState(new Date().toISOString().split('T')[0]);
 
   // Salary Record Modal
@@ -1866,13 +2132,38 @@ const AdminStaffManager: React.FC<{
                   setSalaryModalStaff(st);
                   setDisburseAmount(String(st.salary));
                 }}
-                className="flex-1 py-1.5 rounded-lg bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-xs font-semibold text-[#FFDF78]"
+                className="flex-1 py-1.5 rounded-lg bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-xs font-semibold text-[#FFDF78] cursor-pointer"
               >
                 Log Salary
               </button>
+
+              <label
+                title="Add or update stylist photo from device files"
+                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-[#D4AF37]/20 border border-white/10 hover:border-[#D4AF37]/40 text-xs text-[#FFDF78] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const url = await uploadImageOrMedia(file);
+                      await updateDoc(doc(db, 'staff', st.id), { photoURL: url });
+                      onRefresh();
+                    } catch (err: any) {
+                      console.error('Staff photo upload error:', err);
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+
               <button
                 onClick={() => openEditStaff(st)}
-                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300"
+                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 cursor-pointer"
               >
                 Edit
               </button>
@@ -1899,6 +2190,50 @@ const AdminStaffManager: React.FC<{
                   onChange={(e) => setName(e.target.value)}
                   className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
                 />
+              </div>
+
+              {/* Staff Profile Photo Upload from Device */}
+              <div className="p-3 rounded-2xl bg-[#070B14] border border-white/10 space-y-2">
+                <label className="block text-gray-300 font-semibold text-xs flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>Stylist Photo (Upload from Device)</span>
+                </label>
+
+                <div className="flex items-center gap-3">
+                  {photoURL ? (
+                    <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-[#D4AF37] bg-[#0E1628] shrink-0">
+                      <img src={photoURL} alt={name || 'Staff'} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPhotoURL('')}
+                        className="absolute top-0 right-0 p-0.5 bg-black/80 text-red-400 rounded-full hover:text-white"
+                        title="Remove photo"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 rounded-full border border-dashed border-[#D4AF37]/50 bg-[#0E1628] flex items-center justify-center text-gray-500 shrink-0">
+                      <User className="w-6 h-6 text-[#D4AF37]/50" />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 text-xs font-bold text-[#FFDF78] cursor-pointer transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{uploadingPhoto ? 'Uploading Photo...' : 'Upload Staff Image'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingPhoto}
+                        onChange={handleStaffPhotoSelect}
+                        className="hidden"
+                      />
+                    </label>
+                    {photoError && <p className="text-[10px] text-red-400">{photoError}</p>}
+                    <p className="text-[10px] text-gray-400">Select PNG, JPG, or WebP photo from device files.</p>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -2414,19 +2749,47 @@ const AdminReviewsManager: React.FC<{
   reviews: ReviewItem[];
   onRefresh: () => void;
 }> = ({ reviews, onRefresh }) => {
+  const [overrideStatuses, setOverrideStatuses] = useState<Record<string, ReviewItem['status']>>({});
+  const [localReviews, setLocalReviews] = useState<ReviewItem[]>(reviews);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [replyingId, setReplyingId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalReviews(
+      reviews.map((r) => ({
+        ...r,
+        status: overrideStatuses[r.id] !== undefined ? overrideStatuses[r.id] : r.status,
+      }))
+    );
+  }, [reviews, overrideStatuses]);
 
   const handleUpdateStatus = async (id: string, status: ReviewItem['status']) => {
-    await updateDoc(doc(db, 'reviews', id), { status });
-    onRefresh();
+    // 1. Instantly record override status so it NEVER flips back on stale refresh
+    setOverrideStatuses((prev) => ({ ...prev, [id]: status }));
+    setLocalReviews((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+    setLoadingId(id);
+
+    try {
+      // 2. Persist to Firestore
+      await setDoc(doc(db, 'reviews', id), { status }, { merge: true });
+      setFeedbackMsg(`Review successfully ${status === 'Approved' ? 'Approved' : 'Hidden'}.`);
+      setTimeout(() => setFeedbackMsg(null), 3000);
+      onRefresh();
+    } catch (err: any) {
+      console.error('Review status update error:', err);
+      setFeedbackMsg('Status update failed: ' + (err?.message || 'Error'));
+    } finally {
+      setLoadingId(null);
+    }
   };
 
   const handleSaveReply = async (id: string) => {
     if (!replyText.trim()) return;
-    await updateDoc(doc(db, 'reviews', id), {
+    await setDoc(doc(db, 'reviews', id), {
       adminReply: replyText.trim(),
-    });
+    }, { merge: true });
     setReplyingId(null);
     setReplyText('');
     onRefresh();
@@ -2434,47 +2797,79 @@ const AdminReviewsManager: React.FC<{
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="font-['Cinzel'] text-xl font-bold text-white">Guest Reviews Moderation</h3>
-        <p className="text-xs text-gray-400">Approve, hide, or reply to patron feedback.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-['Cinzel'] text-xl font-bold text-white">Guest Reviews Moderation</h3>
+          <p className="text-xs text-gray-400">Approve, hide, or reply to patron feedback instantly.</p>
+        </div>
+        {feedbackMsg && (
+          <span className="px-3 py-1 bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs rounded-xl flex items-center gap-1.5 animate-in fade-in">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{feedbackMsg}</span>
+          </span>
+        )}
       </div>
 
       <div className="space-y-4">
-        {reviews.map((rev) => (
-          <div key={rev.id} className="p-5 rounded-2xl bg-[#070B14] border border-white/10 space-y-3">
-            <div className="flex justify-between items-start">
-              <div>
-                <h4 className="font-bold text-white text-sm">{rev.customerName}</h4>
-                <div className="flex items-center gap-2 text-xs text-[#FFDF78] mt-0.5">
-                  <Star className="w-3.5 h-3.5 fill-current" />
-                  <span>Avg: {rev.averageRating}★</span>
-                  <span className="text-gray-400">
-                    (Service: {rev.ratingService}★, Staff: {rev.ratingStaff}★, Value: {rev.ratingValue}★, Hygiene: {rev.ratingCleanliness}★)
-                  </span>
+        {localReviews.map((rev) => {
+          const currentStatus = overrideStatuses[rev.id] !== undefined ? overrideStatuses[rev.id] : (rev.status || 'Pending');
+
+          return (
+            <div key={rev.id} className="p-5 rounded-2xl bg-[#070B14] border border-white/10 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-white text-sm">{rev.customerName}</h4>
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                        currentStatus === 'Approved'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-red-950 text-red-300 border border-red-500/40'
+                      }`}
+                    >
+                      {currentStatus}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-[#FFDF78] mt-0.5">
+                    <Star className="w-3.5 h-3.5 fill-current" />
+                    <span>Avg: {rev.averageRating}★</span>
+                    <span className="text-gray-400">
+                      (Service: {rev.ratingService}★, Staff: {rev.ratingStaff}★, Value: {rev.ratingValue}★, Hygiene: {rev.ratingCleanliness}★)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={loadingId === rev.id}
+                    onClick={() => handleUpdateStatus(rev.id, 'Approved')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                      currentStatus === 'Approved'
+                        ? 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                        : 'bg-[#0E1628] text-gray-300 hover:text-emerald-300 hover:bg-emerald-950/60 border border-white/10'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{loadingId === rev.id && currentStatus !== 'Approved' ? 'Updating...' : 'Approve'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loadingId === rev.id}
+                    onClick={() => handleUpdateStatus(rev.id, 'Hidden')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                      currentStatus === 'Hidden'
+                        ? 'bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+                        : 'bg-[#0E1628] text-gray-300 hover:text-red-300 hover:bg-red-950/60 border border-white/10'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{loadingId === rev.id && currentStatus !== 'Hidden' ? 'Updating...' : 'Hide'}</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleUpdateStatus(rev.id, 'Approved')}
-                  className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                    rev.status === 'Approved' ? 'bg-emerald-600 text-white' : 'bg-white/5 text-gray-400'
-                  }`}
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => handleUpdateStatus(rev.id, 'Hidden')}
-                  className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                    rev.status === 'Hidden' ? 'bg-red-600 text-white' : 'bg-white/5 text-gray-400'
-                  }`}
-                >
-                  Hide
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-300 italic">&ldquo;{rev.comment}&rdquo;</p>
+              <p className="text-xs text-gray-300 italic">&ldquo;{rev.comment}&rdquo;</p>
 
             {rev.adminReply ? (
               <div className="p-3 bg-[#0E1628] rounded-xl text-xs text-[#FFDF78] border border-[#D4AF37]/30">
@@ -2511,7 +2906,8 @@ const AdminReviewsManager: React.FC<{
               </button>
             )}
           </div>
-        ))}
+        );
+      })}
       </div>
     </div>
   );

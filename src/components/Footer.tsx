@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { APP_CONFIG } from '../config';
-import { Compass, FileText, Heart, Lock, Phone, Scissors, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { Compass, Facebook, FileText, Heart, Instagram, Lock, Phone, Scissors, ShieldAlert, Sparkles, X } from 'lucide-react';
 
 interface FooterProps {
   onNavigateAdmin: () => void;
@@ -70,6 +70,30 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateAdmin }) => {
             <p className="text-xs text-gray-400 font-sans leading-relaxed">
               Award-winning luxury unisex salon in Chakdaha, West Bengal. Elevating bespoke hair styling, skin aesthetics, and bridal elegance.
             </p>
+
+            {/* Social Media Link Icons (Strictly icons only, no visible link text) */}
+            <div className="flex items-center gap-2.5 mt-4">
+              <a
+                href={APP_CONFIG.instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Instagram"
+                title="Follow Trim & Twisted on Instagram"
+                className="w-9 h-9 rounded-xl bg-[#0E1628] hover:bg-[#1A253F] border border-[#D4AF37]/30 hover:border-pink-500/60 text-[#FFDF78] hover:text-pink-400 flex items-center justify-center transition-all shadow-[0_0_15px_rgba(212,175,55,0.15)] group"
+              >
+                <Instagram className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              </a>
+              <a
+                href={APP_CONFIG.facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Facebook"
+                title="Connect with Trim & Twisted on Facebook"
+                className="w-9 h-9 rounded-xl bg-[#0E1628] hover:bg-[#1A253F] border border-[#D4AF37]/30 hover:border-blue-500/60 text-[#FFDF78] hover:text-blue-400 flex items-center justify-center transition-all shadow-[0_0_15px_rgba(212,175,55,0.15)] group"
+              >
+                <Facebook className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              </a>
+            </div>
           </div>
 
           {/* Quick Direct Contacts */}
@@ -177,6 +201,28 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateAdmin }) => {
         {/* Bottom Line */}
         <div className="pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
           <p>© {new Date().getFullYear()} Trim & Twisted Unisex Salon. All Rights Reserved.</p>
+          <div className="flex items-center gap-3">
+            <a
+              href={APP_CONFIG.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram"
+              title="Trim & Twisted Instagram"
+              className="text-[#FFDF78] hover:text-pink-400 transition-colors p-1"
+            >
+              <Instagram className="w-4 h-4" />
+            </a>
+            <a
+              href={APP_CONFIG.facebookUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook"
+              title="Trim & Twisted Facebook"
+              className="text-[#FFDF78] hover:text-blue-400 transition-colors p-1"
+            >
+              <Facebook className="w-4 h-4" />
+            </a>
+          </div>
           <p className="flex items-center gap-1 text-[11px]">
             Crafted for <span className="text-[#FFDF78]">Trim & Twisted</span> &bull; Beauty Is You
           </p>

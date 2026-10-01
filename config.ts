@@ -17,6 +17,8 @@ export const APP_CONFIG = {
   formattedPhone: "+91 96473 45945",
   whatsappNumber: "919647345945",
   whatsappUrl: "https://wa.me/919647345945",
+  instagramUrl: "https://www.instagram.com/trimtwisted?stkn=MXg3b2RocDY0eDVxaQ==",
+  facebookUrl: "https://www.facebook.com/share/1Byikt62YS/",
   googleMapsUrl: "https://maps.app.goo.gl/UhKjXP9bPafeoGVN6",
   googleMapsEmbedQuery: "Trim & Twisted Unisex Salon Chakdaha",
   address: "Trim & Twisted, Near Chakdaha Station Road, Chakdaha, West Bengal 741222",

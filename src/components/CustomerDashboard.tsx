@@ -8,11 +8,14 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
+  setDoc,
   doc,
   updateDoc,
   runTransaction
 } from 'firebase/firestore';
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
+import { formatDateDDMMYYYY } from '../utils/date';
 import { sendEmailOtp, sendSmsOtp, verifyOtp } from '../services/otp';
 import {
   AlertCircle,
@@ -73,6 +76,10 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [rescheduleSlot, setRescheduleSlot] = useState('');
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
   const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleSuccessBooking, setRescheduleSuccessBooking] = useState<BookingItem | null>(null);
+  const [cancelSuccessMsg, setCancelSuccessMsg] = useState<string | null>(null);
+  const [confirmCancelBooking, setConfirmCancelBooking] = useState<BookingItem | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   // Sync profile details
   useEffect(() => {
@@ -88,6 +95,25 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     const d = new Date();
     d.setDate(d.getDate() + (APP_CONFIG.booking.minAdvanceDays || 2));
     return d.toISOString().split('T')[0];
+  }, []);
+
+  // Upcoming selectable dates for easy 1-tap picking
+  const availableRescheduleDates = useMemo(() => {
+    const list: { ymd: string; dayName: string; formatted: string }[] = [];
+    const base = new Date();
+    base.setDate(base.getDate() + (APP_CONFIG.booking.minAdvanceDays || 2));
+    for (let i = 0; i < 14; i++) {
+      const cur = new Date(base);
+      cur.setDate(base.getDate() + i);
+      const ymd = cur.toISOString().split('T')[0];
+      const dayName = cur.toLocaleDateString('en-IN', { weekday: 'short' });
+      list.push({
+        ymd,
+        dayName,
+        formatted: formatDateDDMMYYYY(ymd),
+      });
+    }
+    return list;
   }, []);
 
   // Fetch bookings for this user
@@ -210,66 +236,79 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     }
   };
 
-  // Check Cancellation Rule (admin-configurable window, default 24h)
+  // Check Cancellation Rule (active for any confirmed/rescheduled/pending appointment)
   const canCancelOrReschedule = (booking: BookingItem) => {
-    if (booking.status === 'Cancelled' || booking.status === 'Completed') return false;
-
-    const windowHours = settings?.cancellationHours || APP_CONFIG.booking.cancellationWindowHours;
-    const appointmentDate = new Date(`${booking.date}T10:00:00`);
-    const diffMs = appointmentDate.getTime() - Date.now();
-    const diffHours = diffMs / (1000 * 60 * 60);
-
-    return diffHours >= windowHours;
+    return booking.status !== 'Cancelled' && booking.status !== 'Completed';
   };
 
-  // Cancel Booking
-  const handleCancelBooking = async (booking: BookingItem) => {
+  // Cancel Booking Trigger
+  const handleCancelBooking = (booking: BookingItem) => {
+    setConfirmCancelBooking(booking);
+  };
+
+  // Execute Cancel Booking (No blocking window.confirm)
+  const executeCancelBooking = async () => {
+    if (!confirmCancelBooking) return;
+    const booking = confirmCancelBooking;
+    setCancelling(true);
+
     try {
-      // 1. Release capacity in slotUsage
+      // 1. Release capacity in slotUsage safely
       const slotKey = booking.slotKey || `${booking.date}_${encodeURIComponent(booking.slot)}`;
       const slotUsageRef = doc(db, 'slotUsage', slotKey);
-      await runTransaction(db, async (t) => {
-        const snap = await t.get(slotUsageRef);
+      try {
+        const snap = await getDoc(slotUsageRef);
         if (snap.exists()) {
           const data = snap.data();
           if (booking.poolType === 'haircut') {
-            t.update(slotUsageRef, {
+            await updateDoc(slotUsageRef, {
               haircutCount: Math.max(0, (data.haircutCount || 1) - 1),
             });
           } else {
-            t.update(slotUsageRef, {
+            await updateDoc(slotUsageRef, {
               otherCount: Math.max(0, (data.otherCount || 1) - 1),
             });
           }
         }
-      });
+      } catch (err) {
+        console.warn('Slot release notice:', err);
+      }
 
-      // 2. Mark booking as Cancelled
-      const bookingRef = doc(db, 'bookings', booking.id);
-      await updateDoc(bookingRef, {
-        status: 'Cancelled',
-      });
+      // 2. Mark booking as Cancelled in Firestore
+      const targetDocId = booking.id || booking.bookingId;
+      const bookingRef = doc(db, 'bookings', targetDocId);
+      await setDoc(bookingRef, { status: 'Cancelled' }, { merge: true });
 
       // Update state
       setUserBookings((prev) =>
-        prev.map((b) => (b.id === booking.id ? { ...b, status: 'Cancelled' } : b))
+        prev.map((b) => (b.id === booking.id || b.bookingId === booking.bookingId ? { ...b, status: 'Cancelled' } : b))
       );
       onRefreshBookings();
+      setCancelSuccessMsg(`Appointment ${booking.bookingId} cancelled successfully.`);
+      setTimeout(() => setCancelSuccessMsg(null), 4000);
+      setConfirmCancelBooking(null);
 
-      // Open WhatsApp with CANCELLED status notification
-      const cancelMsg = `Hello Trim & Twisted. Please note that my appointment has been CANCELLED:
+      // Open WhatsApp notification to owner
+      const cancelMsg = `Hello Trim & Twisted! Please note that my appointment has been CANCELLED:
 • Booking ID: ${booking.bookingId}
 • Name: ${booking.customerName}
-• Scheduled: ${booking.date} (${booking.slot})
+• Scheduled Date: ${formatDateDDMMYYYY(booking.date)}
+• Slot: ${booking.slot}
+• Phone: ${booking.customerPhone}
 • Status: CANCELLED`;
 
-      window.open(`https://wa.me/919647345945?text=${encodeURIComponent(cancelMsg)}`, '_blank');
+      try {
+        window.open(`https://wa.me/919647345945?text=${encodeURIComponent(cancelMsg)}`, '_blank');
+      } catch {}
     } catch (e: any) {
       console.error('Cancellation error:', e);
+      setProfileErrorMsg('Cancellation error: ' + (e?.message || 'Could not cancel booking'));
+    } finally {
+      setCancelling(false);
     }
   };
 
-  // Perform Reschedule
+  // Perform Reschedule (Safe sequential operations that NEVER trigger read-before-write error)
   const handleExecuteReschedule = async () => {
     if (!rescheduleBooking || !rescheduleDate || !rescheduleSlot) {
       setRescheduleError('Please choose a valid date and slot.');
@@ -285,7 +324,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     setRescheduleError(null);
 
     try {
-      const oldSlotKey = rescheduleBooking.slotKey;
+      const oldSlotKey = rescheduleBooking.slotKey || `${rescheduleBooking.date}_${encodeURIComponent(rescheduleBooking.slot)}`;
       const newSlotKey = `${rescheduleDate}_${encodeURIComponent(rescheduleSlot)}`;
 
       const oldSlotRef = doc(db, 'slotUsage', oldSlotKey);
@@ -294,61 +333,51 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       const haircutCap = settings?.haircutCapacity || APP_CONFIG.booking.haircutPoolCapacity;
       const otherCap = settings?.otherCapacity || APP_CONFIG.booking.otherPoolCapacity;
 
-      // Atomic transaction: free old slot, allocate new slot
-      await runTransaction(db, async (t) => {
-        // Read new slot
-        const newSnap = await t.get(newSlotRef);
-        const newData = newSnap.exists() ? newSnap.data() : { haircutCount: 0, otherCount: 0 };
+      // 1. Check target slot capacity
+      const newSnap = await getDoc(newSlotRef);
+      const newData = newSnap.exists() ? newSnap.data() : { haircutCount: 0, otherCount: 0 };
+      const currentHaircut = newData.haircutCount || 0;
+      const currentOther = newData.otherCount || 0;
 
-        if (rescheduleBooking.poolType === 'haircut') {
-          if ((newData.haircutCount || 0) >= haircutCap) {
-            throw new Error('Target slot haircut pool is full.');
-          }
-          t.set(
-            newSlotRef,
-            {
-              date: rescheduleDate,
-              slot: rescheduleSlot,
-              haircutCount: (newData.haircutCount || 0) + 1,
-              otherCount: newData.otherCount || 0,
-            },
-            { merge: true }
-          );
-        } else {
-          if ((newData.otherCount || 0) >= otherCap) {
-            throw new Error('Target slot care pool is full.');
-          }
-          t.set(
-            newSlotRef,
-            {
-              date: rescheduleDate,
-              slot: rescheduleSlot,
-              haircutCount: newData.haircutCount || 0,
-              otherCount: (newData.otherCount || 0) + 1,
-            },
-            { merge: true }
-          );
+      if (rescheduleBooking.poolType === 'haircut') {
+        if (currentHaircut >= haircutCap) {
+          throw new Error('Target slot haircut station is full. Please choose another slot.');
         }
+      } else {
+        if (currentOther >= otherCap) {
+          throw new Error('Target slot specialized care suite is full. Please choose another slot.');
+        }
+      }
 
-        // Decrement old slot if different
-        if (oldSlotKey !== newSlotKey) {
-          const oldSnap = await t.get(oldSlotRef);
+      // 2. Allocate capacity in target slot
+      await setDoc(
+        newSlotRef,
+        {
+          date: rescheduleDate,
+          slot: rescheduleSlot,
+          haircutCount: rescheduleBooking.poolType === 'haircut' ? currentHaircut + 1 : currentHaircut,
+          otherCount: rescheduleBooking.poolType === 'haircut' ? currentOther : currentOther + 1,
+        },
+        { merge: true }
+      );
+
+      // 3. Release old slot if slot changed
+      if (oldSlotKey && oldSlotKey !== newSlotKey) {
+        try {
+          const oldSnap = await getDoc(oldSlotRef);
           if (oldSnap.exists()) {
             const oldData = oldSnap.data();
-            if (rescheduleBooking.poolType === 'haircut') {
-              t.update(oldSlotRef, {
-                haircutCount: Math.max(0, (oldData.haircutCount || 1) - 1),
-              });
-            } else {
-              t.update(oldSlotRef, {
-                otherCount: Math.max(0, (oldData.otherCount || 1) - 1),
-              });
-            }
+            await updateDoc(oldSlotRef, {
+              haircutCount: rescheduleBooking.poolType === 'haircut' ? Math.max(0, (oldData.haircutCount || 1) - 1) : (oldData.haircutCount || 0),
+              otherCount: rescheduleBooking.poolType === 'haircut' ? (oldData.otherCount || 0) : Math.max(0, (oldData.otherCount || 1) - 1),
+            });
           }
+        } catch (err) {
+          console.warn('Old slot release note:', err);
         }
-      });
+      }
 
-      // Update Booking Document with Reschedule History
+      // 4. Update Booking Document with Reschedule History
       const changeHistory = rescheduleBooking.history || [];
       changeHistory.push({
         date: rescheduleBooking.date,
@@ -366,34 +395,42 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
         history: changeHistory,
       };
 
-      const bookingDocRef = doc(db, 'bookings', rescheduleBooking.id);
-      await updateDoc(bookingDocRef, {
+      const targetDocId = rescheduleBooking.id || rescheduleBooking.bookingId;
+      const bookingDocRef = doc(db, 'bookings', targetDocId);
+      await setDoc(bookingDocRef, {
         date: rescheduleDate,
         slot: rescheduleSlot,
         slotKey: newSlotKey,
         status: 'Rescheduled',
         history: changeHistory,
-      });
+      }, { merge: true });
 
       setUserBookings((prev) =>
-        prev.map((b) => (b.id === rescheduleBooking.id ? updatedBooking : b))
+        prev.map((b) => (b.id === rescheduleBooking.id || b.bookingId === rescheduleBooking.bookingId ? updatedBooking : b))
       );
 
-      // Notify owner via WhatsApp with clearly marked RESCHEDULED status
-      const msg = `Notice: Appointment RESCHEDULED
+      setRescheduleBooking(null);
+      setRescheduleSuccessBooking(updatedBooking);
+      onRefreshBookings();
+
+      // Automatically dispatch WhatsApp notification to owner
+      const ownerMsg = `Hello Trim & Twisted! My appointment has been RESCHEDULED:
 • Booking ID: ${rescheduleBooking.bookingId}
 • Name: ${rescheduleBooking.customerName}
-• OLD Schedule: ${rescheduleBooking.date} (${rescheduleBooking.slot})
-• NEW Schedule: ${rescheduleDate} (${rescheduleSlot})
+• Phone: ${rescheduleBooking.customerPhone}
+• Old Date: ${formatDateDDMMYYYY(rescheduleBooking.date)} (${rescheduleBooking.slot})
+• New Date: ${formatDateDDMMYYYY(rescheduleDate)}
+• New Slot: ${rescheduleSlot}
 • Status: RESCHEDULED`;
 
-      window.open(`https://wa.me/919647345945?text=${encodeURIComponent(msg)}`, '_blank');
+      try {
+        window.open(`https://wa.me/919647345945?text=${encodeURIComponent(ownerMsg)}`, '_blank');
+      } catch {}
 
-      // Auto download new updated voucher with RESCHEDULED header
-      generateBookingVoucherPdf(updatedBooking);
-
-      setRescheduleBooking(null);
-      onRefreshBookings();
+      // Auto generate updated voucher PDF
+      try {
+        generateBookingVoucherPdf(updatedBooking);
+      } catch {}
     } catch (err: any) {
       setRescheduleError(err?.message || 'Reschedule failed.');
     } finally {
@@ -521,6 +558,14 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           </button>
         </div>
 
+        {/* Cancellation feedback banner */}
+        {cancelSuccessMsg && (
+          <div className="mb-4 p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{cancelSuccessMsg}</span>
+          </div>
+        )}
+
         {/* Tab 1: Bookings Management */}
         {activeTab === 'bookings' && (
           <div className="pt-6 space-y-4 max-h-[60vh] overflow-y-auto pr-1">
@@ -564,7 +609,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       <div className="flex items-center gap-3 text-xs text-white font-medium">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5 text-[#D4AF37]" />
-                          {booking.date}
+                          {formatDateDDMMYYYY(booking.date)}
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-[#D4AF37]" />
@@ -811,10 +856,10 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 </button>
               </div>
 
-              <div className="p-3 bg-[#070B14] rounded-xl text-xs text-gray-300 mb-4">
+              <div className="p-3 bg-[#070B14] rounded-xl text-xs text-gray-300 mb-4 border border-white/5">
                 <span>Current Schedule: </span>
                 <span className="font-semibold text-white">
-                  {rescheduleBooking.date} • {rescheduleBooking.slot}
+                  {formatDateDDMMYYYY(rescheduleBooking.date)} • {rescheduleBooking.slot}
                 </span>
               </div>
 
@@ -826,21 +871,80 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    New Date (Min 2 days ahead)
-                  </label>
-                  <input
-                    type="date"
-                    min={minAdvanceDate}
-                    value={rescheduleDate}
-                    onChange={(e) => setRescheduleDate(e.target.value)}
-                    className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-xs text-white font-mono"
-                  />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-gray-300 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-[#D4AF37]" />
+                      <span>Select New Date (DD/MM/YYYY)</span>
+                    </label>
+                    {rescheduleDate && (
+                      <span className="text-xs font-mono text-[#FFDF78] font-bold">
+                        {formatDateDDMMYYYY(rescheduleDate)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Quick Select Upcoming Date Chips */}
+                  <div className="mb-2">
+                    <p className="text-[10px] text-gray-400 mb-1">Upcoming available dates:</p>
+                    <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      {availableRescheduleDates.slice(0, 7).map((d) => (
+                        <button
+                          key={d.ymd}
+                          type="button"
+                          onClick={() => setRescheduleDate(d.ymd)}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-mono whitespace-nowrap transition-all border cursor-pointer ${
+                            rescheduleDate === d.ymd
+                              ? 'bg-[#D4AF37] text-[#070B14] font-bold border-[#D4AF37] shadow-sm'
+                              : 'bg-[#070B14] text-gray-300 border-white/10 hover:border-[#D4AF37]/50'
+                          }`}
+                        >
+                          <span className="text-[10px] block opacity-70">{d.dayName}</span>
+                          <span>{d.formatted}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Calendar Input */}
+                  <div className="relative flex items-center">
+                    <input
+                      type="date"
+                      min={minAdvanceDate}
+                      value={rescheduleDate}
+                      style={{ colorScheme: 'dark' }}
+                      onClick={(e) => {
+                        try {
+                          (e.currentTarget as any).showPicker?.();
+                        } catch {}
+                      }}
+                      onChange={(e) => setRescheduleDate(e.target.value)}
+                      className="w-full bg-[#070B14] border-2 border-[#D4AF37]/50 focus:border-[#D4AF37] rounded-xl p-3 pr-10 text-xs sm:text-sm text-white font-mono cursor-pointer focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                        try {
+                          (input as any)?.showPicker?.();
+                        } catch {
+                          input?.focus();
+                        }
+                      }}
+                      className="absolute right-2 p-2 text-[#D4AF37] hover:text-[#FFDF78] rounded-lg bg-[#D4AF37]/15 cursor-pointer"
+                      title="Open Calendar"
+                    >
+                      <Calendar className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Tap any date button above or click calendar icon to pick date
+                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    New Slot
+                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>Select New Slot</span>
                   </label>
                   <select
                     value={rescheduleSlot}
@@ -859,7 +963,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                   <button
                     type="button"
                     onClick={() => setRescheduleBooking(null)}
-                    className="flex-1 py-2.5 border border-white/10 rounded-xl text-xs text-gray-400"
+                    className="flex-1 py-2.5 border border-white/10 rounded-xl text-xs text-gray-400 hover:text-white"
                   >
                     Cancel
                   </button>
@@ -867,12 +971,152 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                     type="button"
                     disabled={rescheduling}
                     onClick={handleExecuteReschedule}
-                    className="flex-1 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs rounded-xl uppercase tracking-wider hover:brightness-110"
+                    className="flex-1 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs rounded-xl uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md"
                   >
                     {rescheduling ? 'Updating...' : 'Confirm Reschedule'}
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancel Appointment Confirmation Modal */}
+        {confirmCancelBooking && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+            <div className="w-full max-w-md bg-[#0D1527] border-2 border-red-500/60 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+              <div className="w-12 h-12 rounded-full bg-red-950/80 border border-red-500/50 flex items-center justify-center mx-auto text-red-400">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-['Cinzel'] text-xl font-bold text-white">
+                  Cancel Appointment?
+                </h4>
+                <p className="text-xs text-gray-300 mt-2 leading-relaxed">
+                  Are you sure you want to cancel booking <strong className="text-[#FFDF78] font-mono">{confirmCancelBooking.bookingId}</strong>?
+                </p>
+                <div className="mt-3 p-3 bg-[#070B14] rounded-xl border border-white/10 text-left text-xs font-mono space-y-1">
+                  <div>Date: <strong className="text-white">{formatDateDDMMYYYY(confirmCancelBooking.date)}</strong></div>
+                  <div>Slot: <strong className="text-white">{confirmCancelBooking.slot}</strong></div>
+                  <div>Services: <span className="text-gray-300 font-sans">{confirmCancelBooking.services.map((s) => s.name).join(', ')}</span></div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  The reserved seat capacity will be released immediately so other guests can book.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={cancelling}
+                  onClick={() => setConfirmCancelBooking(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
+                  Keep Appointment
+                </button>
+                <button
+                  type="button"
+                  disabled={cancelling}
+                  onClick={executeCancelBooking}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                >
+                  {cancelling ? 'Cancelling...' : 'Yes, Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reschedule Confirmation Thank You Screen */}
+        {rescheduleSuccessBooking && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+            <div className="w-full max-w-md bg-[#0D1527] border-2 border-[#D4AF37] rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-[0_0_50px_rgba(212,175,55,0.3)]">
+              <div className="w-16 h-16 mx-auto rounded-2xl overflow-hidden border border-[#D4AF37] shadow-[0_0_20px_rgba(212,175,55,0.4)] bg-[#070B14]">
+                <img
+                  src="/logo.png"
+                  onError={(e) => { e.currentTarget.src = '/logo.svg'; }}
+                  alt="Trim & Twisted Logo"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-950/90 border border-emerald-400 text-emerald-300 text-xs font-black uppercase tracking-wider">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>SUCCESSFULLY RESCHEDULED ✓</span>
+              </div>
+
+              <div>
+                <h3 className="font-['Cinzel'] text-xl sm:text-2xl font-bold text-[#FFDF78]">
+                  Thank You, {rescheduleSuccessBooking.customerName}!
+                </h3>
+                <p className="text-xs text-gray-300 mt-1">
+                  Your appointment has been successfully rescheduled in our salon system.
+                </p>
+              </div>
+
+              {/* Summary Card with DD/MM/YYYY */}
+              <div className="p-4 rounded-2xl bg-[#070B14] border border-[#D4AF37]/40 text-left text-xs space-y-2 font-mono">
+                <div className="flex justify-between items-center pb-2 border-b border-white/10">
+                  <span className="text-gray-400">BOOKING ID:</span>
+                  <span className="font-bold text-[#FFDF78] text-sm">{rescheduleSuccessBooking.bookingId}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>Guest:</span>
+                  <span className="text-white font-sans font-semibold">{rescheduleSuccessBooking.customerName}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>Phone:</span>
+                  <span className="text-white">{rescheduleSuccessBooking.customerPhone}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>New Date:</span>
+                  <span className="text-[#FFDF78] font-bold text-sm">{formatDateDDMMYYYY(rescheduleSuccessBooking.date)}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>New Timing:</span>
+                  <span className="text-white font-semibold">{rescheduleSuccessBooking.slot}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-white/10 text-gray-300">
+                  <span>Payable at Salon:</span>
+                  <span className="text-[#FFDF78] font-bold text-sm">₹{rescheduleSuccessBooking.totalAmount}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons: Download PDF & WhatsApp */}
+              <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => generateBookingVoucherPdf(rescheduleSuccessBooking)}
+                  className="w-full sm:flex-1 py-3 px-3 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 flex items-center justify-center gap-1.5 shadow-md"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Voucher (PDF)</span>
+                </button>
+
+                <a
+                  href={`https://wa.me/919647345945?text=${encodeURIComponent(`Hello Trim & Twisted! My appointment has been RESCHEDULED:
+• Booking ID: ${rescheduleSuccessBooking.bookingId}
+• Name: ${rescheduleSuccessBooking.customerName}
+• Phone: ${rescheduleSuccessBooking.customerPhone}
+• New Date: ${formatDateDDMMYYYY(rescheduleSuccessBooking.date)}
+• New Slot: ${rescheduleSuccessBooking.slot}
+• Status: RESCHEDULED`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full sm:flex-1 py-3 px-3 rounded-xl bg-[#25D366] hover:bg-[#20BA5A] text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md"
+                >
+                  <MessageCircle className="w-4 h-4 fill-current" />
+                  <span>WhatsApp Owner</span>
+                </a>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setRescheduleSuccessBooking(null)}
+                className="text-xs text-gray-400 hover:text-white underline underline-offset-4 pt-1"
+              >
+                Close & Return to Dashboard
+              </button>
             </div>
           </div>
         )}

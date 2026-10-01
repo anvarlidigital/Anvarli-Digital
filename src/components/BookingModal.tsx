@@ -3,8 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../config';
 import type { ServiceItem, StaffItem, CouponItem, BookingItem, SalonSettings } from '../types';
 import { db, sanitizeForFirestore } from '../services/firebase';
-import { doc, getDoc, runTransaction, collection, addDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, runTransaction, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
+import { formatDateDDMMYYYY } from '../utils/date';
 import confetti from 'canvas-confetti';
 import {
   AlertCircle,
@@ -361,46 +362,44 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       const bookingId = generateBookingId(selectedDate);
       const chosenStylist = staffList.find((s) => s.id === selectedStylistId);
 
-      // Perform Firestore Transaction to guarantee atomic, concurrency-safe capacity allocation
-      await runTransaction(db, async (transaction) => {
-        const slotSnap = await transaction.get(slotUsageRef);
-        const currentData = slotSnap.exists()
-          ? slotSnap.data()
-          : { haircutCount: 0, otherCount: 0 };
+      // Capacity allocation check
+      const slotSnap = await getDoc(slotUsageRef);
+      const currentData = slotSnap.exists()
+        ? slotSnap.data()
+        : { haircutCount: 0, otherCount: 0 };
 
-        const currentHaircutCount = currentData.haircutCount || 0;
-        const currentOtherCount = currentData.otherCount || 0;
+      const currentHaircutCount = currentData.haircutCount || 0;
+      const currentOtherCount = currentData.otherCount || 0;
 
-        if (requiresHaircutPool) {
-          if (currentHaircutCount >= haircutCapacity) {
-            throw new Error('This slot haircut pool is full. Please choose another slot.');
-          }
-          transaction.set(
-            slotUsageRef,
-            {
-              date: selectedDate,
-              slot: selectedSlot,
-              haircutCount: currentHaircutCount + 1,
-              otherCount: currentOtherCount,
-            },
-            { merge: true }
-          );
-        } else {
-          if (currentOtherCount >= otherCapacity) {
-            throw new Error('This slot salon care pool is full. Please choose another slot.');
-          }
-          transaction.set(
-            slotUsageRef,
-            {
-              date: selectedDate,
-              slot: selectedSlot,
-              haircutCount: currentHaircutCount,
-              otherCount: currentOtherCount + 1,
-            },
-            { merge: true }
-          );
+      if (requiresHaircutPool) {
+        if (currentHaircutCount >= haircutCapacity) {
+          throw new Error('This slot haircut station is full. Please choose another slot.');
         }
-      });
+        await setDoc(
+          slotUsageRef,
+          {
+            date: selectedDate,
+            slot: selectedSlot,
+            haircutCount: currentHaircutCount + 1,
+            otherCount: currentOtherCount,
+          },
+          { merge: true }
+        );
+      } else {
+        if (currentOtherCount >= otherCapacity) {
+          throw new Error('This slot salon care suite is full. Please choose another slot.');
+        }
+        await setDoc(
+          slotUsageRef,
+          {
+            date: selectedDate,
+            slot: selectedSlot,
+            haircutCount: currentHaircutCount,
+            otherCount: currentOtherCount + 1,
+          },
+          { merge: true }
+        );
+      }
 
       // Transaction passed! Create booking document
       const newBooking: BookingItem = {
@@ -452,6 +451,27 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       setStep('success');
       onBookingSuccess(confirmedBooking);
 
+      // Automatically redirect details to owner's WhatsApp number
+      const srvNames = confirmedBooking.services.map((s) => s.name).join(', ');
+      const whatsappMsg = `Hello Trim & Twisted! New Appointment Booking Confirmed:
+• Booking ID: ${confirmedBooking.bookingId}
+• Name: ${confirmedBooking.customerName}
+• Phone: ${confirmedBooking.customerPhone}
+• Date: ${formatDateDDMMYYYY(confirmedBooking.date)}
+• Slot: ${confirmedBooking.slot}
+• Services: ${srvNames}
+• Total Payable at Salon: ₹${confirmedBooking.totalAmount}
+• Status: CONFIRMED`;
+
+      try {
+        window.open(`https://wa.me/919647345945?text=${encodeURIComponent(whatsappMsg)}`, '_blank');
+      } catch {}
+
+      // Automatically generate & download booking receipt PDF
+      try {
+        generateBookingVoucherPdf(confirmedBooking);
+      } catch {}
+
       // Trigger Confetti Celebration!
       try {
         confetti({
@@ -473,17 +493,15 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   // Open WhatsApp with prefilled message
   const handleOpenWhatsApp = (booking: BookingItem) => {
     const srvNames = booking.services.map((s) => s.name).join(', ');
-    const msg = `Hello Trim & Twisted! My appointment has been booked:
+    const msg = `Hello Trim & Twisted! Appointment Confirmation:
 • Booking ID: ${booking.bookingId}
 • Name: ${booking.customerName}
 • Phone: ${booking.customerPhone}
-• Services: ${srvNames}
-• Date: ${booking.date}
+• Date: ${formatDateDDMMYYYY(booking.date)}
 • Slot: ${booking.slot}
-• Status: CONFIRMED
-• Payable at Salon: ₹${booking.totalAmount}
-
-Looking forward to my salon experience!`;
+• Services: ${srvNames}
+• Total Payable: ₹${booking.totalAmount}
+• Status: CONFIRMED`;
 
     const encoded = encodeURIComponent(msg);
     window.open(`https://wa.me/919647345945?text=${encoded}`, '_blank');
@@ -1130,25 +1148,40 @@ Looking forward to my salon experience!`;
 
               <div>
                 <h3 className="font-['Cinzel'] text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#FFF5D6] via-[#FFDF78] to-[#AA7C11]">
-                  Appointment Confirmed, {createdBooking.customerName}!
+                  Thank You! Booking Confirmed, {createdBooking.customerName}!
                 </h3>
                 <p className="font-['Playfair_Display'] italic text-sm text-[#E6DFCA] mt-1">
-                  Your seat has been reserved in our styling roster. We look forward to seeing you.
+                  Your seat has been reserved in our styling roster. We look forward to welcoming you.
                 </p>
               </div>
 
               {/* Booking Pass ID Card */}
-              <div className="p-6 rounded-2xl bg-[#070B14] border border-[#D4AF37]/60 max-w-md mx-auto text-left space-y-2.5 shadow-xl">
+              <div className="p-6 rounded-2xl bg-[#070B14] border border-[#D4AF37]/60 max-w-md mx-auto text-left space-y-2.5 shadow-xl font-mono">
                 <div className="flex justify-between items-center pb-2.5 border-b border-white/10">
-                  <span className="text-xs text-gray-400 font-mono">BOOKING PASS ID:</span>
-                  <span className="font-mono text-lg font-black text-[#FFDF78]">
+                  <span className="text-xs text-gray-400">BOOKING PASS ID:</span>
+                  <span className="text-lg font-black text-[#FFDF78]">
                     {createdBooking.bookingId}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center text-xs text-gray-300">
-                  <span>Appointment Schedule:</span>
-                  <span className="font-bold text-white">{createdBooking.date} • {createdBooking.slot}</span>
+                  <span>Guest Name:</span>
+                  <span className="font-bold text-white font-sans">{createdBooking.customerName}</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-gray-300">
+                  <span>Contact Mobile:</span>
+                  <span className="font-bold text-white">{createdBooking.customerPhone}</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-gray-300">
+                  <span>Appointment Date:</span>
+                  <span className="font-bold text-[#FFDF78] text-sm">{formatDateDDMMYYYY(createdBooking.date)}</span>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-gray-300">
+                  <span>Timing Slot:</span>
+                  <span className="font-bold text-white">{createdBooking.slot}</span>
                 </div>
 
                 <div className="flex justify-between items-center text-xs text-gray-300">
@@ -1192,7 +1225,7 @@ Looking forward to my salon experience!`;
                   className="w-full sm:flex-1 py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Download Voucher (PDF)</span>
+                  <span>Download Receipt (PDF)</span>
                 </button>
 
                 <button
@@ -1201,7 +1234,7 @@ Looking forward to my salon experience!`;
                   className="w-full sm:flex-1 py-3.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20BA5A] text-white font-bold text-xs uppercase tracking-wider active:scale-95 transition-all shadow-md flex items-center justify-center gap-2"
                 >
                   <MessageCircle className="w-4 h-4 fill-current" />
-                  <span>WhatsApp Concierge</span>
+                  <span>Send to Owner WhatsApp</span>
                 </button>
               </div>
 

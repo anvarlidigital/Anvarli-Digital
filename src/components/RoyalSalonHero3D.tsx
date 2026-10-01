@@ -353,7 +353,7 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
       : '#FFDF78';
 
   return (
-    <div className="relative w-full h-[520px] sm:h-[620px] rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
+    <div className="relative w-full h-[360px] xs:h-[400px] sm:h-[500px] md:h-[580px] lg:h-[640px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_60px_rgba(212,175,55,0.25)] bg-[#070B14]">
       {/* Top Interactive HUD Bar */}
       <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
         {/* Badge */}

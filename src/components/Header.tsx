@@ -4,6 +4,8 @@ import { APP_CONFIG } from '../config';
 import {
   Calendar,
   Compass,
+  Facebook,
+  Instagram,
   Lock,
   Menu,
   Phone,
@@ -80,6 +82,29 @@ export const Header: React.FC<HeaderProps> = ({
             <Lock className="w-3 h-3 text-[#D4AF37]" />
             <span>Admin</span>
           </button>
+          {/* Social Links (Icons only, no visible text) */}
+          <div className="flex items-center gap-2 border-l border-white/10 pl-3">
+            <a
+              href={APP_CONFIG.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram"
+              title="Follow Trim & Twisted on Instagram"
+              className="p-1 rounded-lg text-[#FFDF78] hover:text-pink-400 transition-colors"
+            >
+              <Instagram className="w-3.5 h-3.5" />
+            </a>
+            <a
+              href={APP_CONFIG.facebookUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook"
+              title="Follow Trim & Twisted on Facebook"
+              className="p-1 rounded-lg text-[#FFDF78] hover:text-blue-400 transition-colors"
+            >
+              <Facebook className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
       </div>
 
@@ -148,6 +173,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Controls & Profile */}
         <div className="hidden sm:flex items-center gap-3">
+          {/* Social Icons (Instagram & Facebook) */}
+          <div className="flex items-center gap-1.5 mr-1">
+            <a
+              href={APP_CONFIG.instagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram"
+              title="Trim & Twisted on Instagram"
+              className="p-2 rounded-xl bg-[#0E1628] hover:bg-[#1A253F] border border-white/10 hover:border-pink-500/40 text-[#FFDF78] hover:text-pink-400 transition-all shadow-sm"
+            >
+              <Instagram className="w-4 h-4" />
+            </a>
+            <a
+              href={APP_CONFIG.facebookUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook"
+              title="Trim & Twisted on Facebook"
+              className="p-2 rounded-xl bg-[#0E1628] hover:bg-[#1A253F] border border-white/10 hover:border-blue-500/40 text-[#FFDF78] hover:text-blue-400 transition-all shadow-sm"
+            >
+              <Facebook className="w-4 h-4" />
+            </a>
+          </div>
+
           {/* 3D Lite Mode Toggle */}
           <button
             onClick={onToggleLiteMode}
@@ -255,7 +304,31 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center justify-end pt-3 border-t border-white/10">
+          <div className="flex items-center justify-between pt-3 border-t border-white/10">
+            {/* Social Icons (Mobile) */}
+            <div className="flex items-center gap-2">
+              <a
+                href={APP_CONFIG.instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Instagram"
+                title="Trim & Twisted on Instagram"
+                className="p-2 rounded-xl bg-[#0E1628] border border-white/10 text-[#FFDF78] hover:text-pink-400 flex items-center justify-center"
+              >
+                <Instagram className="w-4 h-4" />
+              </a>
+              <a
+                href={APP_CONFIG.facebookUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Facebook"
+                title="Trim & Twisted on Facebook"
+                className="p-2 rounded-xl bg-[#0E1628] border border-white/10 text-[#FFDF78] hover:text-blue-400 flex items-center justify-center"
+              >
+                <Facebook className="w-4 h-4" />
+              </a>
+            </div>
+
             <button
               onClick={onToggleLiteMode}
               className="flex items-center gap-1.5 text-xs text-gray-300"

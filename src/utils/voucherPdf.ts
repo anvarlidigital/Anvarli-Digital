@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import type { BookingItem } from '../types';
 import { APP_CONFIG } from '../config';
+import { formatDateDDMMYYYY } from './date';
 
 export function generateBookingVoucherPdf(booking: BookingItem) {
   const doc = new jsPDF({
@@ -90,7 +91,7 @@ export function generateBookingVoucherPdf(booking: BookingItem) {
   doc.setTextColor(170, 185, 205);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`Created On: ${new Date(booking.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`, 24, y + 18);
+  doc.text(`Created On: ${formatDateDDMMYYYY(booking.createdAt)}`, 24, y + 18);
   doc.text(`Assigned Pool: ${booking.poolType === 'haircut' ? 'Haircut & Styling Pool' : 'Specialized Care Pool'}`, 115, y + 18);
 
   y += 34;
@@ -108,12 +109,12 @@ export function generateBookingVoucherPdf(booking: BookingItem) {
     doc.setFontSize(9);
     doc.text('ORIGINAL SCHEDULE:', 24, y + 7);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${lastChange.date} | ${lastChange.slot}`, 70, y + 7);
+    doc.text(`${formatDateDDMMYYYY(lastChange.date)} | ${lastChange.slot}`, 70, y + 7);
 
     doc.setTextColor(120, 230, 150);
     doc.setFont('helvetica', 'bold');
     doc.text('NEW RESCHEDULED:', 24, y + 13);
-    doc.text(`${booking.date} | ${booking.slot}`, 70, y + 13);
+    doc.text(`${formatDateDDMMYYYY(booking.date)} | ${booking.slot}`, 70, y + 13);
 
     y += 24;
   }
@@ -150,7 +151,7 @@ export function generateBookingVoucherPdf(booking: BookingItem) {
   doc.setTextColor(220, 230, 240);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`Date: ${booking.date}`, 28 + colW, y + 16);
+  doc.text(`Date: ${formatDateDDMMYYYY(booking.date)}`, 28 + colW, y + 16);
   doc.text(`Time Slot: ${booking.slot}`, 28 + colW, y + 23);
   doc.setTextColor(255, 215, 120);
   doc.setFont('helvetica', 'bold');

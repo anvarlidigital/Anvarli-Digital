@@ -280,8 +280,8 @@ export async function seedInitialFirestoreData() {
           (s) => s.name.trim().toLowerCase() === (currentData.name || '').trim().toLowerCase()
         );
         if (matchedInitial) {
-          // If image is default or missing, update it
-          if (!currentData.image || currentData.image.includes('w=600') || !currentData.priceLabel && matchedInitial.priceLabel) {
+          // If image is completely missing, provide initial default
+          if (!currentData.image) {
             batch.update(doc(db, 'services', d.id), {
               image: matchedInitial.image,
               ...(matchedInitial.priceLabel ? { priceLabel: matchedInitial.priceLabel } : {}),
@@ -474,6 +474,41 @@ export function sanitizeForFirestore<T>(data: T): T {
     return result as T;
   }
   return data;
+}
+
+/**
+ * Empties all slot usage counts so every slot is 100% free, and cleans previous/pending test bookings
+ */
+export async function clearAllBookingsAndResetSlots() {
+  try {
+    // 1. Delete all slotUsage documents
+    const slotsSnap = await getDocs(collection(db, 'slotUsage'));
+    const batch1 = writeBatch(db);
+    slotsSnap.docs.forEach((d) => {
+      batch1.delete(doc(db, 'slotUsage', d.id));
+    });
+    await batch1.commit();
+
+    // 2. Clear all previous/pending bookings
+    const bookingsSnap = await getDocs(collection(db, 'bookings'));
+    const batch2 = writeBatch(db);
+    bookingsSnap.docs.forEach((d) => {
+      batch2.delete(doc(db, 'bookings', d.id));
+    });
+    await batch2.commit();
+
+    // Clear local storage cache
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('tt_saved_bookings');
+      } catch {}
+    }
+
+    return { success: true, count: bookingsSnap.docs.length };
+  } catch (err: any) {
+    console.error('Error clearing bookings and resetting slots:', err);
+    throw err;
+  }
 }
 
 export {
