@@ -55,6 +55,12 @@ export function formatBookingForSupabase(b: BookingItem) {
     status: b.status || 'Confirmed',
     notes: b.notes || null,
     history: b.history || [],
+    sms_consent: b.smsConsent !== false,
+    sms_status: b.smsStatus || 'Pending',
+    sms_sid: b.smsSid || null,
+    sms_error: b.smsError || null,
+    sms_sent_at: b.smsSentAt || null,
+    notification_status: b.notificationStatus || b.smsStatus || 'Pending',
     created_at: b.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

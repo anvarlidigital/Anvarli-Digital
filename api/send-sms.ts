@@ -121,15 +121,27 @@ async function fetchBookingFromSupabase(bookingId: string): Promise<any | null> 
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const b = data[0];
+        let servicesStr = '';
+        if (Array.isArray(b.services)) {
+          servicesStr = b.services.map((s: any) => typeof s === 'string' ? s : s?.name || '').filter(Boolean).join(', ');
+        } else if (typeof b.services === 'string') {
+          servicesStr = b.services;
+        } else if (b['Services']) {
+          servicesStr = String(b['Services']);
+        }
+
         return {
           bookingId: b.booking_id || b.id || bookingId,
           customerName: b.customer_name || b['Customer Name'] || 'Valued Guest',
           customerPhone: b.customer_phone || b['Phone'] || '',
           date: b.date || b['Date'] || '',
           slot: b.slot || b['Time Slot'] || '',
+          services: servicesStr,
           stylist: b.stylist_name || b['Stylist'] || 'Assigned Stylist',
           totalAmount: b.total_amount || b['Total Amount'] || 0,
-          status: b.status || b['Status'] || 'Confirmed'
+          status: b.status || b['Status'] || 'Confirmed',
+          sms_status: b.sms_status || null,
+          sms_sid: b.sms_sid || null
         };
       }
     }
@@ -150,9 +162,12 @@ async function fetchBookingFromSupabase(bookingId: string): Promise<any | null> 
           customerPhone: a['Phone'] || '',
           date: a['Date'] || '',
           slot: a['Time Slot'] || '',
+          services: a['Services'] || '',
           stylist: a['Stylist'] || 'Assigned Stylist',
           totalAmount: a['Total Amount'] || 0,
-          status: a['Status'] || 'Confirmed'
+          status: a['Status'] || 'Confirmed',
+          sms_status: a.sms_status || null,
+          sms_sid: a.sms_sid || null
         };
       }
     }
@@ -164,15 +179,66 @@ async function fetchBookingFromSupabase(bookingId: string): Promise<any | null> 
 }
 
 /**
+ * Record SMS notification status and Twilio SID in Supabase
+ */
+async function updateSupabaseSmsStatus(
+  bookingId: string,
+  status: 'Sent' | 'Failed' | 'Opted-Out',
+  sid?: string,
+  error?: string
+) {
+  const supabaseUrl = process.env.SUPABASE_URL || 'https://kvuwagkynvucrwyregxe.supabase.co';
+  const supabaseKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    'sb_publishable_P_y1N_OBaMy_pAsfQaOgyg_DBLwjrHS';
+
+  if (!supabaseUrl || !supabaseKey) return;
+
+  const cleanUrl = supabaseUrl.replace(/\/+$/, '');
+  const headers = {
+    'apikey': supabaseKey,
+    'Authorization': `Bearer ${supabaseKey}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal'
+  };
+
+  try {
+    const payload = {
+      sms_status: status,
+      sms_sid: sid || null,
+      sms_error: error || null,
+      sms_sent_at: new Date().toISOString(),
+      notification_status: status === 'Sent' ? 'Delivered' : (error ? `Failed: ${error}` : 'Failed'),
+      updated_at: new Date().toISOString()
+    };
+
+    await fetch(
+      `${cleanUrl}/rest/v1/bookings?or=(booking_id.eq.${encodeURIComponent(
+        bookingId
+      )},id.eq.${encodeURIComponent(bookingId)})`,
+      {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload)
+      }
+    );
+  } catch (e: any) {
+    console.warn('[Twilio SMS] Note updating Supabase with notification status:', e?.message || e);
+  }
+}
+
+/**
  * Generate SMS text content based on notification type and booking data
  */
 function generateSmsContent(
-  messageType: 'confirmation' | 'cancellation' | 'reminder',
+  messageType: 'confirmation' | 'cancellation' | 'reminder' | 'test',
   booking: {
     bookingId: string;
     customerName: string;
     date: string;
     slot: string;
+    services?: string;
     stylist?: string;
     totalAmount?: number | string;
   },
@@ -182,21 +248,25 @@ function generateSmsContent(
   const id = booking.bookingId;
   const date = booking.date || 'your scheduled date';
   const slot = booking.slot || 'scheduled time';
+  const services = booking.services ? ` for ${booking.services}` : '';
   const stylist = booking.stylist && booking.stylist !== 'Any' ? ` with ${booking.stylist}` : '';
   const amount = booking.totalAmount ? ` (Total: ₹${booking.totalAmount})` : '';
 
   switch (messageType) {
     case 'confirmation':
-      return `Trim & Twisted: Hi ${name}, your booking #${id} on ${date} at ${slot}${stylist} is CONFIRMED!${amount} Location: Near Chakdaha Station Road. Help/Queries: +91 96473 45945.`;
+      return `Trim & Twisted: Hi ${name}, your booking #${id}${services} on ${date} at ${slot}${stylist} is CONFIRMED!${amount} Location: Near Chakdaha Station Road. Queries: +91 96473 45945. Reply STOP to opt out.`;
 
     case 'cancellation':
-      return `Trim & Twisted: Hi ${name}, booking #${id} on ${date} at ${slot} has been CANCELLED as requested. If this was a mistake, please call +91 96473 45945 to rebook.`;
+      return `Trim & Twisted: Hi ${name}, booking #${id}${services} on ${date} at ${slot} has been CANCELLED as requested. If this was a mistake, call +91 96473 45945 to rebook.`;
 
     case 'reminder':
-      return `Trim & Twisted Reminder: Hi ${name}, your appointment #${id} is scheduled for ${date} at ${slot}${stylist}. We look forward to pampering you! Location: Near Chakdaha Station Rd.`;
+      return `Trim & Twisted Reminder: Hi ${name}, your appointment #${id}${services} is scheduled for ${date} at ${slot}${stylist}. Location: Near Chakdaha Station Rd. Helpline: +91 96473 45945.`;
+
+    case 'test':
+      return customNote || `Trim & Twisted [TEST]: Twilio SMS Gateway is active & connected! Sent to ${name} at ${new Date().toLocaleTimeString('en-IN')}.`;
 
     default:
-      return `Trim & Twisted: Update for booking #${id} on ${date} at ${slot}. Call +91 96473 45945 for assistance.`;
+      return `Trim & Twisted: Update for booking #${id}${services} on ${date} at ${slot}. Call +91 96473 45945 for assistance.`;
   }
 }
 
@@ -236,10 +306,10 @@ export default async function handler(req: Request | any, res: Response | any) {
       });
     }
 
-    if (!messageType || !['confirmation', 'cancellation', 'reminder'].includes(messageType)) {
+    if (!messageType || !['confirmation', 'cancellation', 'reminder', 'test'].includes(messageType)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid messageType. Must be one of: confirmation, cancellation, reminder',
+        error: 'Invalid messageType. Must be one of: confirmation, cancellation, reminder, test',
         code: 'INVALID_MESSAGE_TYPE'
       });
     }
@@ -324,6 +394,23 @@ export default async function handler(req: Request | any, res: Response | any) {
     // 5. Database lookup & Booking verification (Supabase)
     const booking = await fetchBookingFromSupabase(bookingId);
 
+    // Prevent duplicate confirmation SMS if Supabase already records it as sent
+    if (booking && booking.sms_status === 'Sent' && booking.sms_sid && messageType === 'confirmation') {
+      console.log(
+        `[Twilio SMS] [DEDUP] SMS already previously dispatched for booking #${bookingId} (SID: ${booking.sms_sid})`
+      );
+      return res.status(200).json({
+        success: true,
+        message: `SMS notification for booking #${bookingId} was already sent.`,
+        duplicate: true,
+        bookingId,
+        messageType,
+        sid: booking.sms_sid,
+        status: 'delivered',
+        recipient: maskPhoneNumber(normalizedPhone)
+      });
+    }
+
     // If booking was not in Supabase yet (or during instant optimistic client dispatch),
     // allow clientDetails if provided, or verify phone format
     const effectiveBooking = booking || {
@@ -332,6 +419,7 @@ export default async function handler(req: Request | any, res: Response | any) {
       customerPhone: clientDetails?.customerPhone || normalizedPhone,
       date: clientDetails?.date || 'Scheduled Date',
       slot: clientDetails?.slot || 'Booked Slot',
+      services: clientDetails?.services || '',
       stylist: clientDetails?.stylistName || 'Salon Stylist',
       totalAmount: clientDetails?.totalAmount || 0,
       status: clientDetails?.status || 'Confirmed'
@@ -410,6 +498,9 @@ export default async function handler(req: Request | any, res: Response | any) {
     // 10. Record deduplication cache on successful dispatch
     dedupCache.set(dedupKey, Date.now());
 
+    // Record notification status and Twilio message SID in Supabase
+    await updateSupabaseSmsStatus(bookingId, 'Sent', messageResult.sid);
+
     // Structured server log (with masked phone for customer privacy)
     console.log(
       `[Twilio SMS] [SENT] [${messageType.toUpperCase()}] Booking: ${bookingId} | To: ${maskPhoneNumber(
@@ -448,6 +539,11 @@ export default async function handler(req: Request | any, res: Response | any) {
     } else if (err?.code === 21606) {
       userFriendlyMsg = 'The "From" phone number is not a valid SMS-capable Twilio phone number.';
       errCode = 'TWILIO_INVALID_SENDER_NUMBER';
+    }
+
+    // Record failure in Supabase without reversing the booking
+    if (req.body?.bookingId) {
+      await updateSupabaseSmsStatus(req.body.bookingId, 'Failed', undefined, userFriendlyMsg);
     }
 
     return res.status(500).json({

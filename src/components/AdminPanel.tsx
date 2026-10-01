@@ -28,6 +28,7 @@ import {
 } from 'firebase/firestore';
 import { sha256, generateSalt } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
+import { sendBookingSmsNotification } from '../services/smsService';
 import { jsPDF } from 'jspdf';
 import {
   AlertCircle,
@@ -57,10 +58,12 @@ import {
   MessageSquare,
   Phone,
   Plus,
+  Radio,
   RefreshCw,
   RotateCcw,
   Scissors,
   Search,
+  Send,
   Settings,
   Sparkles,
   Star,
@@ -536,26 +539,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
                 </div>
               )}
 
-              {/* Owner Quick Access Button */}
-              {(profile?.email === 'ghoshankitbrata143@gmail.com' || profile?.isAdmin) && (
-                <div className="mb-4 p-3 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-center">
-                  <p className="text-xs text-[#FFDF78] font-semibold mb-2">
-                    Verified Salon Owner Account ({profile.email})
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUsernameInput('trim&twisted');
-                      setPasswordInput('mythransh@2024');
-                      handleAdminLogin(undefined, 'trim&twisted', 'mythransh@2024');
-                    }}
-                    className="w-full py-2.5 px-3 rounded-lg bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow"
-                  >
-                    1-Click Direct Owner Entry
-                  </button>
-                </div>
-              )}
-
               <form onSubmit={(e) => handleAdminLogin(e)} className="space-y-4">
                 {/* Username Input */}
                 <div>
@@ -600,22 +583,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
                       className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#D4AF37] font-mono tracking-widest"
                     />
                   </div>
-                </div>
-
-                {/* Helpful Credential Autofill Helper */}
-                <div className="p-2.5 rounded-xl bg-[#070B14]/80 border border-white/10 flex items-center justify-between text-[11px] text-gray-400 font-mono">
-                  <span>Default: trim&twisted / mythransh@2024</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUsernameInput('trim&twisted');
-                      setPasswordInput('mythransh@2024');
-                      handleAdminLogin(undefined, 'trim&twisted', 'mythransh@2024');
-                    }}
-                    className="text-[#FFDF78] hover:underline font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 hover:bg-[#D4AF37]/20"
-                  >
-                    1-Tap Login
-                  </button>
                 </div>
 
                 <button
@@ -876,6 +843,75 @@ const AdminDashboardOverview: React.FC<{
   const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
   const activeStylists = staff.filter((s) => s.status !== 'Former');
 
+  // Temporary Twilio SMS Diagnostic Testing State (Restricted to authenticated admin)
+  const [testPhoneNumber, setTestPhoneNumber] = useState('+919647345945');
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsTestResult, setSmsTestResult] = useState<{
+    success: boolean;
+    message: string;
+    sid?: string;
+    status?: string;
+    code?: string;
+    timestamp: string;
+  } | null>(null);
+
+  const handleSendTestSms = async () => {
+    if (!testPhoneNumber.trim()) {
+      setSmsTestResult({
+        success: false,
+        message: 'Please provide a valid E.164 phone number (e.g. +919647345945).',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      return;
+    }
+
+    setIsSendingSms(true);
+    setSmsTestResult(null);
+
+    try {
+      const nowStr = new Date().toLocaleTimeString('en-IN');
+      const response = await sendBookingSmsNotification({
+        phoneNumber: testPhoneNumber.trim(),
+        messageType: 'test',
+        bookingId: `TEST-${Date.now().toString().slice(-6)}`,
+        customNote: `Trim & Twisted [ADMIN TEST]: Twilio SMS Gateway verified & functioning! Dispatched at ${nowStr}.`,
+        clientDetails: {
+          customerName: 'Admin Diagnostic Test',
+          customerPhone: testPhoneNumber.trim(),
+          date: todayStr,
+          slot: 'Live Diagnostic Slot',
+          stylistName: 'System Test',
+          status: 'Test'
+        }
+      });
+
+      if (response.success) {
+        setSmsTestResult({
+          success: true,
+          message: response.message || 'Test SMS dispatched successfully through Twilio!',
+          sid: response.sid,
+          status: response.status || 'delivered',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+      } else {
+        setSmsTestResult({
+          success: false,
+          message: response.error || 'Failed to dispatch test SMS via Twilio.',
+          code: response.code,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+      }
+    } catch (err: any) {
+      setSmsTestResult({
+        success: false,
+        message: err?.message || 'Network error communicating with /api/send-sms endpoint.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } finally {
+      setIsSendingSms(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Metric Cards */}
@@ -936,6 +972,149 @@ const AdminDashboardOverview: React.FC<{
         </button>
       </div>
 
+      {/* Temporary Twilio SMS Gateway Diagnostic & Test Tool (Restricted to Authenticated Admins) */}
+      <div className="p-5 rounded-2xl bg-[#070B14] border-2 border-[#D4AF37]/50 relative overflow-hidden shadow-lg">
+        {/* Subtle background glow */}
+        <div className="absolute top-0 right-0 w-64 h-32 bg-[#D4AF37]/5 blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center text-[#FFDF78]">
+              <Radio className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-['Cinzel'] text-sm sm:text-base font-bold text-white tracking-wide">
+                  Twilio SMS Gateway Diagnostic
+                </h4>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#D4AF37]/20 text-[#FFDF78] border border-[#D4AF37]/30 uppercase">
+                  Admin Tool
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Securely test server-side Twilio SMS delivery without exposing credentials to the browser.
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              API: /api/send-sms
+            </span>
+          </div>
+        </div>
+
+        {/* Diagnostic Input & Action Row */}
+        <div className="bg-[#0A101D] p-4 rounded-xl border border-white/10 flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex-1 space-y-1">
+            <label className="text-[11px] font-mono text-gray-300 flex items-center justify-between">
+              <span>Target Verified Test Number (E.164):</span>
+              <button
+                type="button"
+                onClick={() => setTestPhoneNumber('+919647345945')}
+                className="text-[10px] text-[#FFDF78] hover:underline cursor-pointer"
+              >
+                Reset to default (+919647345945)
+              </button>
+            </label>
+            <div className="relative">
+              <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="tel"
+                value={testPhoneNumber}
+                onChange={(e) => setTestPhoneNumber(e.target.value)}
+                placeholder="+919647345945"
+                className="w-full pl-9 pr-3 py-2 bg-[#070B14] border border-white/20 rounded-lg text-sm text-white font-mono focus:outline-none focus:border-[#D4AF37]"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleSendTestSms}
+              disabled={isSendingSms}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md ${
+                isSendingSms
+                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-[#D4AF37] to-[#F3EFE0] text-[#070B14] hover:brightness-110 active:scale-95 shadow-[#D4AF37]/20'
+              }`}
+            >
+              {isSendingSms ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Dispatching SMS...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Test SMS Now</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Result Feedback Banner */}
+        {smsTestResult && (
+          <div
+            className={`mt-4 p-4 rounded-xl border flex items-start justify-between gap-3 text-xs transition-all ${
+              smsTestResult.success
+                ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
+                : 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              {smsTestResult.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-1">
+                <p className="font-semibold text-white">
+                  {smsTestResult.success ? 'Twilio SMS Dispatched Successfully!' : 'SMS Dispatch Failed'}
+                </p>
+                <p className="text-gray-300">{smsTestResult.message}</p>
+
+                {smsTestResult.sid && (
+                  <p className="font-mono text-[11px] text-[#FFDF78]">
+                    Twilio SID: <span className="font-bold">{smsTestResult.sid}</span> &bull; Status: {smsTestResult.status}
+                  </p>
+                )}
+
+                {smsTestResult.code && (
+                  <p className="font-mono text-[11px] text-rose-300">
+                    Error Code: <span className="font-bold">{smsTestResult.code}</span>
+                  </p>
+                )}
+
+                {!smsTestResult.success && smsTestResult.code === 'TWILIO_NOT_CONFIGURED' && (
+                  <p className="text-[11px] text-amber-300 bg-amber-950/30 p-2 rounded border border-amber-500/30 mt-1">
+                    Tip: Set <code className="font-mono text-white">TWILIO_ACCOUNT_SID</code>,{' '}
+                    <code className="font-mono text-white">TWILIO_AUTH_TOKEN</code>, and{' '}
+                    <code className="font-mono text-white">TWILIO_PHONE_NUMBER</code> in your Vercel Project Settings &rarr; Environment Variables.
+                  </p>
+                )}
+
+                <span className="inline-block text-[10px] text-gray-400 font-mono">
+                  Timestamp: {smsTestResult.timestamp}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSmsTestResult(null)}
+              className="text-gray-400 hover:text-white p-1 cursor-pointer"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Recent Appointments Preview */}
       <div className="p-5 rounded-2xl bg-[#070B14] border border-white/10">
         <h4 className="font-['Cinzel'] text-base font-bold text-white mb-4">
@@ -957,9 +1136,24 @@ const AdminDashboardOverview: React.FC<{
                 </p>
               </div>
 
-              <div className="text-right">
+              <div className="text-right flex flex-col items-end gap-1">
                 <span className="font-mono font-bold text-white block">₹{b.totalAmount}</span>
-                <span className="text-[10px] uppercase font-bold text-[#FFDF78]">{b.status}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase font-bold text-[#FFDF78]">{b.status}</span>
+                  {b.smsStatus === 'Sent' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-500/30" title={`Twilio SID: ${b.smsSid || 'Sent'}`}>
+                      SMS ✓
+                    </span>
+                  ) : b.smsStatus === 'Failed' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950/80 text-rose-400 border border-rose-500/30" title="SMS delivery failed">
+                      SMS ✕
+                    </span>
+                  ) : b.smsStatus === 'Opted-Out' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-400 bg-gray-800 border border-gray-700">
+                      Opt-out
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
           ))}
@@ -2219,6 +2413,7 @@ const AdminBookingsManager: React.FC<{
                 <th className="py-3 px-4">Stylist</th>
                 <th className="py-3 px-4 text-right">Payable</th>
                 <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-center">SMS Alert</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -2333,6 +2528,35 @@ const AdminBookingsManager: React.FC<{
                         <option value="Cancelled" className="bg-[#0E1628] text-red-300">Cancelled</option>
                         <option value="No-show" className="bg-[#0E1628] text-orange-300">No-show</option>
                       </select>
+                    </td>
+
+                    {/* SMS Alert Status */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      {b.smsStatus === 'Sent' ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/40"
+                          title={`Twilio SID: ${b.smsSid || 'N/A'}${b.smsSentAt ? `\nSent: ${new Date(b.smsSentAt).toLocaleString()}` : ''}`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          <span>Sent</span>
+                        </span>
+                      ) : b.smsStatus === 'Failed' ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-950/60 text-rose-300 border border-rose-500/40"
+                          title={b.smsError || 'Twilio delivery failed'}
+                        >
+                          <AlertCircle className="w-3 h-3 text-rose-400" />
+                          <span>Failed</span>
+                        </span>
+                      ) : b.smsStatus === 'Opted-Out' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-gray-800 text-gray-400 border border-gray-700">
+                          <span>Opted Out</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono text-gray-500 border border-white/10">
+                          <span>Pending</span>
+                        </span>
+                      )}
                     </td>
 
                     {/* Actions */}
@@ -2630,6 +2854,51 @@ const AdminBookingsManager: React.FC<{
                 &ldquo;{selectedBookingForDetail.notes}&rdquo;
               </div>
             )}
+
+            {/* Twilio SMS Notification Details (Requirement #7) */}
+            <div className="p-3.5 rounded-2xl bg-[#070B14] border border-[#D4AF37]/35 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-gray-300 font-bold flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-[#FFDF78]" />
+                  <span>Twilio SMS Notification Status</span>
+                </span>
+                {selectedBookingForDetail.smsStatus === 'Sent' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                    Delivered
+                  </span>
+                ) : selectedBookingForDetail.smsStatus === 'Failed' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-500/40">
+                    Failed
+                  </span>
+                ) : selectedBookingForDetail.smsStatus === 'Opted-Out' ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono text-gray-400 bg-gray-800 border border-gray-700">
+                    Customer Opted Out
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono text-amber-300 bg-amber-950/60 border border-amber-500/40">
+                    Pending
+                  </span>
+                )}
+              </div>
+
+              {selectedBookingForDetail.smsSid && (
+                <div className="text-[11px] font-mono text-gray-300">
+                  <span className="text-gray-500">Twilio SID:</span> <strong className="text-white">{selectedBookingForDetail.smsSid}</strong>
+                </div>
+              )}
+
+              {selectedBookingForDetail.smsSentAt && (
+                <div className="text-[11px] font-mono text-gray-400">
+                  <span className="text-gray-500">Dispatched At:</span> {new Date(selectedBookingForDetail.smsSentAt).toLocaleString()}
+                </div>
+              )}
+
+              {selectedBookingForDetail.smsError && (
+                <div className="text-[11px] font-mono text-rose-300 bg-rose-950/30 p-2 rounded border border-rose-500/30">
+                  <span className="text-rose-400 font-bold">Failure Reason:</span> {selectedBookingForDetail.smsError}
+                </div>
+              )}
+            </div>
 
             {/* Quick Status Action Controls */}
             <div className="pt-2 flex flex-wrap gap-2">

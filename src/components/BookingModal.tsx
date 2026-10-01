@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { APP_CONFIG } from '../config';
 import type { ServiceItem, StaffItem, CouponItem, BookingItem, SalonSettings } from '../types';
 import { db, sanitizeForFirestore } from '../services/firebase';
-import { doc, getDoc, setDoc, runTransaction, collection, addDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, runTransaction, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { generateBookingVoucherPdf } from '../utils/voucherPdf';
 import { formatDateDDMMYYYY } from '../utils/date';
 import { syncBookingToSupabase } from '../services/supabaseSync';
@@ -92,6 +92,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const [appliedCoupon, setAppliedCoupon] = useState<CouponItem | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [specialNotes, setSpecialNotes] = useState('');
+  const [smsConsent, setSmsConsent] = useState(true);
 
   // Real-time slot capacities state
   const [slotUsage, setSlotUsage] = useState<Record<string, { haircutCount: number; otherCount: number }>>({});
@@ -442,33 +443,102 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         notes: specialNotes.trim() || '',
         history: [],
         createdAt: new Date().toISOString(),
+        smsConsent,
+        smsStatus: smsConsent ? 'Pending' : 'Opted-Out',
+        notificationStatus: smsConsent ? 'Pending' : 'Customer Opted Out',
       };
 
       const docRef = await addDoc(collection(db, 'bookings'), sanitizeForFirestore(newBooking));
-      const confirmedBooking = { ...newBooking, id: docRef.id };
+      const confirmedBooking: BookingItem = { ...newBooking, id: docRef.id };
 
-      // Background Real-Time Sync to Supabase Table Viewer
-      syncBookingToSupabase(confirmedBooking).catch((syncErr) => {
-        console.warn('Background Supabase booking sync note:', syncErr);
-      });
+      // 1. Requirement #1 & #4: Save the booking in Supabase first (Awaited before SMS)
+      try {
+        await syncBookingToSupabase(confirmedBooking);
+        console.log('[Booking] Successfully synchronized booking record to Supabase');
+      } catch (syncErr) {
+        console.warn('[Booking] Supabase booking initial sync note:', syncErr);
+      }
 
-      // Dispatch Twilio Programmable SMS Booking Confirmation
-      sendBookingSmsNotification({
-        phoneNumber: confirmedBooking.customerPhone,
-        messageType: 'confirmation',
-        bookingId: confirmedBooking.bookingId,
-        clientDetails: {
-          customerName: confirmedBooking.customerName,
-          customerPhone: confirmedBooking.customerPhone,
-          date: confirmedBooking.date,
-          slot: confirmedBooking.slot,
-          stylistName: confirmedBooking.stylistName,
-          totalAmount: confirmedBooking.totalAmount,
-          status: 'Confirmed'
+      // 2. Requirements #2, #3, #4, #5, #6, #8, #9:
+      // Send SMS only after the booking is saved, respect consent, and prevent duplicates
+      const dedupKey = `tt_sms_sent_${confirmedBooking.bookingId}`;
+      const alreadySentInSession = typeof window !== 'undefined' && sessionStorage.getItem(dedupKey);
+
+      if (smsConsent && !alreadySentInSession) {
+        try {
+          const serviceNames = confirmedBooking.services.map((s) => s.name).join(', ');
+          const smsRes = await sendBookingSmsNotification({
+            phoneNumber: confirmedBooking.customerPhone,
+            messageType: 'confirmation',
+            bookingId: confirmedBooking.bookingId,
+            clientDetails: {
+              customerName: confirmedBooking.customerName,
+              customerPhone: confirmedBooking.customerPhone,
+              date: confirmedBooking.date,
+              slot: confirmedBooking.slot,
+              services: serviceNames,
+              stylistName: confirmedBooking.stylistName,
+              totalAmount: confirmedBooking.totalAmount,
+              status: 'Confirmed',
+            },
+          });
+
+          // Prevent duplicate dispatch on page refresh
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(dedupKey, 'true');
+          }
+
+          const isSuccess = !!smsRes.success;
+          const smsStatus = isSuccess ? 'Sent' : 'Failed';
+          const smsSid = smsRes.sid || '';
+          const smsSentAt = new Date().toISOString();
+          const notificationStatus = isSuccess
+            ? smsRes.status || 'Delivered'
+            : `Failed: ${smsRes.error || 'Twilio dispatch error'}`;
+
+          confirmedBooking.smsStatus = smsStatus;
+          confirmedBooking.smsSid = smsSid;
+          confirmedBooking.smsSentAt = smsSentAt;
+          confirmedBooking.notificationStatus = notificationStatus;
+          if (!isSuccess && smsRes.error) {
+            confirmedBooking.smsError = smsRes.error;
+          }
+
+          // Requirement #6: Record notification status and Twilio message SID in Firestore
+          await updateDoc(doc(db, 'bookings', confirmedBooking.id), {
+            smsStatus,
+            smsSid,
+            smsSentAt,
+            notificationStatus,
+            smsConsent: true,
+            ...(confirmedBooking.smsError ? { smsError: confirmedBooking.smsError } : {}),
+          }).catch((err: any) => console.warn('[Booking] Firestore SMS update note:', err));
+
+          // Requirement #6: Record notification status and Twilio message SID in Supabase
+          await syncBookingToSupabase(confirmedBooking).catch((err: any) =>
+            console.warn('[Booking] Supabase SMS status record note:', err)
+          );
+        } catch (smsErr: any) {
+          // Requirement #8: Handle SMS failures without deleting or reversing a valid booking
+          console.warn('[Booking] Twilio SMS dispatch error handled gracefully:', smsErr);
+          const failureReason = smsErr?.message || 'Twilio network error';
+          confirmedBooking.smsStatus = 'Failed';
+          confirmedBooking.smsError = failureReason;
+          confirmedBooking.notificationStatus = `Failed: ${failureReason}`;
+
+          await updateDoc(doc(db, 'bookings', confirmedBooking.id), {
+            smsStatus: 'Failed',
+            smsError: failureReason,
+            notificationStatus: `Failed: ${failureReason}`,
+          }).catch(() => {});
+
+          await syncBookingToSupabase(confirmedBooking).catch(() => {});
         }
-      }).catch((smsErr) => {
-        console.warn('Twilio booking confirmation SMS notice:', smsErr);
-      });
+      } else if (!smsConsent) {
+        // Customer explicitly opted out
+        confirmedBooking.smsStatus = 'Opted-Out';
+        confirmedBooking.notificationStatus = 'Customer Opted Out';
+      }
 
       // Cache booking in local storage so it immediately persists for this browser session
       try {
@@ -1070,6 +1140,26 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                     className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
                   />
                 </div>
+
+                {/* SMS Notification Consent (Requirement #9) */}
+                <div className="sm:col-span-2">
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#070B14] border border-[#D4AF37]/30 cursor-pointer hover:border-[#D4AF37]/60 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={smsConsent}
+                      onChange={(e) => setSmsConsent(e.target.checked)}
+                      className="mt-0.5 rounded border-[#D4AF37] text-[#D4AF37] focus:ring-[#D4AF37] cursor-pointer"
+                    />
+                    <div className="text-[11px] text-gray-300 leading-relaxed select-none">
+                      <span className="font-semibold text-[#FFDF78]">Receive SMS Booking Confirmation & Updates:</span>{' '}
+                      Send appointment confirmation, reference ID, and reminder alerts to{' '}
+                      <span className="font-mono text-white">{customerPhone || 'my mobile number'}</span>.
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Standard messaging rates may apply. You may opt out at any time by replying STOP.
+                      </p>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {/* Coupon Code Section */}
@@ -1253,6 +1343,24 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 <div className="pt-2 text-[11px] text-emerald-400 font-bold text-center border-t border-white/5">
                   ✓ Verified Zero Advance • Pay after service at salon
                 </div>
+
+                {/* SMS Notification Confirmation Receipt Badge */}
+                {createdBooking.smsStatus === 'Sent' && (
+                  <div className="pt-2 text-[11px] text-emerald-300 font-medium text-center border-t border-white/5 flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>SMS confirmation sent to {createdBooking.customerPhone}</span>
+                  </div>
+                )}
+                {createdBooking.smsStatus === 'Failed' && (
+                  <div className="pt-2 text-[11px] text-amber-300/90 text-center border-t border-white/5">
+                    Appointment confirmed! (SMS alert pending delivery to {createdBooking.customerPhone})
+                  </div>
+                )}
+                {createdBooking.smsStatus === 'Opted-Out' && (
+                  <div className="pt-2 text-[11px] text-gray-400 text-center border-t border-white/5">
+                    SMS notifications opted out per your preference.
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}

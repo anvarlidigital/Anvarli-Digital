@@ -6,7 +6,7 @@
 
 export interface SendSmsPayload {
   phoneNumber: string;
-  messageType: 'confirmation' | 'cancellation' | 'reminder';
+  messageType: 'confirmation' | 'cancellation' | 'reminder' | 'test';
   bookingId: string;
   customNote?: string;
   clientDetails?: {
@@ -14,6 +14,7 @@ export interface SendSmsPayload {
     customerPhone?: string;
     date?: string;
     slot?: string;
+    services?: string;
     stylistName?: string;
     totalAmount?: number | string;
     status?: string;

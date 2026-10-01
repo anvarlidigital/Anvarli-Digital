@@ -72,6 +72,12 @@ export interface BookingItem {
   notes?: string;
   history?: BookingChange[];
   createdAt: string;
+  smsConsent?: boolean;
+  smsStatus?: 'Pending' | 'Sent' | 'Failed' | 'Opted-Out' | 'Suppressed';
+  smsSid?: string;
+  smsError?: string;
+  smsSentAt?: string;
+  notificationStatus?: string;
 }
 
 export interface ReviewItem {
