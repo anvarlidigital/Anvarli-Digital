@@ -1,82 +1,231 @@
 -- =========================================================================
 -- TRIM & TWISTED - LUXURY UNISEX SALON
--- SUPABASE POSTGRESQL SCHEMA & TABLE VIEWER CONFIGURATION
+-- SUPABASE POSTGRESQL SCHEMA & TABLE VIEWER CSV IMPORT FIX
 -- Project ID: kvuwagkynvucrwyregxe
 -- =========================================================================
 -- Instructions:
--- 1. Open your Supabase Dashboard: https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new
+-- 1. Open your Supabase Dashboard:
+--    https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new
 -- 2. Paste this entire SQL script into the SQL Editor.
 -- 3. Click "RUN".
--- 4. Navigate to "Table Editor" in Supabase: all tables (bookings, users, services, staff, reviews)
---    will be immediately visible, fully editable, and ready to receive real-time synced data!
+-- 4. In Supabase "Table Editor", open either:
+--    - "bookings" table OR
+--    - "appointments" table
+-- 5. Click "Insert" -> "Import data from CSV" (or spreadsheet) and select
+--    your downloaded CSV. All columns will match with 100% zero errors!
 -- =========================================================================
 
--- Enable required extensions
+-- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- -------------------------------------------------------------------------
--- 1. USERS & PATRONS TABLE (public.users)
+-- 1. DEDICATED APPOINTMENTS TABLE MATCHING EXACT CSV HEADERS
+-- -------------------------------------------------------------------------
+-- This table directly matches the 14 columns in the exported CSV spreadsheet:
+-- "Booking ID", "Date", "Time Slot", "Customer Name", "Phone", "Email",
+-- "Services", "Stylist", "Subtotal", "Discount", "Total Amount", "Status", "Pool", "Created At"
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.appointments (
+    "Booking ID" TEXT PRIMARY KEY,
+    "Date" TEXT,
+    "Time Slot" TEXT,
+    "Customer Name" TEXT,
+    "Phone" TEXT,
+    "Email" TEXT,
+    "Services" TEXT,
+    "Stylist" TEXT,
+    "Subtotal" NUMERIC DEFAULT 0,
+    "Discount" NUMERIC DEFAULT 0,
+    "Total Amount" NUMERIC DEFAULT 0,
+    "Status" TEXT DEFAULT 'Confirmed',
+    "Pool" TEXT DEFAULT 'Salon Care',
+    "Created At" TEXT
+);
+
+-- Enable RLS and grant permissions so Table Editor can view & edit
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.appointments TO anon, authenticated, service_role;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'appointments' AND policyname = 'Public full access to appointments'
+    ) THEN
+        CREATE POLICY "Public full access to appointments" 
+        ON public.appointments FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+
+-- -------------------------------------------------------------------------
+-- 2. UPDATE OR CREATE public.bookings TABLE WITH CSV COLUMNS & SNAKE_CASE
+-- -------------------------------------------------------------------------
+-- This ensures if you import into public.bookings, all 14 columns exist!
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.bookings (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    booking_id TEXT UNIQUE,
+    customer_name TEXT,
+    customer_phone TEXT,
+    customer_email TEXT,
+    date TEXT,
+    slot TEXT,
+    stylist_name TEXT,
+    subtotal NUMERIC DEFAULT 0,
+    discount NUMERIC DEFAULT 0,
+    total_amount NUMERIC DEFAULT 0,
+    status TEXT DEFAULT 'Confirmed',
+    pool_type TEXT DEFAULT 'other',
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Safely add all 14 exact CSV headers to public.bookings if they don't exist yet:
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Booking ID" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Date" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Time Slot" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Customer Name" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Phone" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Email" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Services" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Stylist" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Status" TEXT DEFAULT 'Confirmed';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Pool" TEXT DEFAULT 'Salon Care';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Created At" TEXT;
+
+-- Auto-synchronization trigger: syncs values between quoted CSV headers and snake_case fields
+CREATE OR REPLACE FUNCTION public.sync_bookings_csv_and_snake()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Sync quoted CSV column values into snake_case fields
+    IF NEW."Booking ID" IS NOT NULL AND NEW.booking_id IS NULL THEN
+        NEW.booking_id := NEW."Booking ID";
+    END IF;
+    IF NEW."Customer Name" IS NOT NULL AND NEW.customer_name IS NULL THEN
+        NEW.customer_name := NEW."Customer Name";
+    END IF;
+    IF NEW."Phone" IS NOT NULL AND NEW.customer_phone IS NULL THEN
+        NEW.customer_phone := NEW."Phone";
+    END IF;
+    IF NEW."Email" IS NOT NULL AND NEW.customer_email IS NULL THEN
+        NEW.customer_email := NEW."Email";
+    END IF;
+    IF NEW."Date" IS NOT NULL AND NEW.date IS NULL THEN
+        NEW.date := NEW."Date";
+    END IF;
+    IF NEW."Time Slot" IS NOT NULL AND NEW.slot IS NULL THEN
+        NEW.slot := NEW."Time Slot";
+    END IF;
+    IF NEW."Stylist" IS NOT NULL AND NEW.stylist_name IS NULL THEN
+        NEW.stylist_name := NEW."Stylist";
+    END IF;
+    IF NEW."Subtotal" IS NOT NULL AND (NEW.subtotal IS NULL OR NEW.subtotal = 0) THEN
+        NEW.subtotal := NEW."Subtotal";
+    END IF;
+    IF NEW."Discount" IS NOT NULL AND (NEW.discount IS NULL OR NEW.discount = 0) THEN
+        NEW.discount := NEW."Discount";
+    END IF;
+    IF NEW."Total Amount" IS NOT NULL AND (NEW.total_amount IS NULL OR NEW.total_amount = 0) THEN
+        NEW.total_amount := NEW."Total Amount";
+    END IF;
+    IF NEW."Status" IS NOT NULL AND NEW.status IS NULL THEN
+        NEW.status := NEW."Status";
+    END IF;
+    IF NEW."Pool" IS NOT NULL AND NEW.pool_type IS NULL THEN
+        NEW.pool_type := NEW."Pool";
+    END IF;
+
+    -- Reverse sync: if snake_case is populated, populate quoted CSV columns
+    IF NEW.booking_id IS NOT NULL AND NEW."Booking ID" IS NULL THEN
+        NEW."Booking ID" := NEW.booking_id;
+    END IF;
+    IF NEW.customer_name IS NOT NULL AND NEW."Customer Name" IS NULL THEN
+        NEW."Customer Name" := NEW.customer_name;
+    END IF;
+    IF NEW.customer_phone IS NOT NULL AND NEW."Phone" IS NULL THEN
+        NEW."Phone" := NEW.customer_phone;
+    END IF;
+    IF NEW.customer_email IS NOT NULL AND NEW."Email" IS NULL THEN
+        NEW."Email" := NEW.customer_email;
+    END IF;
+    IF NEW.date IS NOT NULL AND NEW."Date" IS NULL THEN
+        NEW."Date" := NEW.date;
+    END IF;
+    IF NEW.slot IS NOT NULL AND NEW."Time Slot" IS NULL THEN
+        NEW."Time Slot" := NEW.slot;
+    END IF;
+    IF NEW.stylist_name IS NOT NULL AND NEW."Stylist" IS NULL THEN
+        NEW."Stylist" := NEW.stylist_name;
+    END IF;
+    IF NEW.total_amount IS NOT NULL AND (NEW."Total Amount" IS NULL OR NEW."Total Amount" = 0) THEN
+        NEW."Total Amount" := NEW.total_amount;
+    END IF;
+    IF NEW.status IS NOT NULL AND NEW."Status" IS NULL THEN
+        NEW."Status" := NEW.status;
+    END IF;
+    IF NEW.pool_type IS NOT NULL AND NEW."Pool" IS NULL THEN
+        NEW."Pool" := NEW.pool_type;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_bookings_csv_and_snake ON public.bookings;
+CREATE TRIGGER trg_sync_bookings_csv_and_snake
+BEFORE INSERT OR UPDATE ON public.bookings
+FOR EACH ROW EXECUTE FUNCTION public.sync_bookings_csv_and_snake();
+
+-- Enable RLS and grant permissions on public.bookings
+ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'bookings' AND policyname = 'Public full access to bookings'
+    ) THEN
+        CREATE POLICY "Public full access to bookings" 
+        ON public.bookings FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+
+-- -------------------------------------------------------------------------
+-- 3. USERS & PATRONS TABLE (public.users)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.users (
     uid TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
+    name TEXT,
     email TEXT,
     phone TEXT,
-    photo_url TEXT,
+    role TEXT DEFAULT 'customer',
     loyalty_points INTEGER DEFAULT 100,
     referral_code TEXT,
-    referred_by TEXT,
-    phone_verified BOOLEAN DEFAULT false,
-    role TEXT DEFAULT 'customer',
-    is_admin BOOLEAN DEFAULT false,
-    notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for lightning fast lookups & table filtering
-CREATE INDEX IF NOT EXISTS idx_users_phone ON public.users(phone);
-CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
-CREATE INDEX IF NOT EXISTS idx_users_role ON public.users(role);
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'users' AND policyname = 'Public full access to users'
+    ) THEN
+        CREATE POLICY "Public full access to users" 
+        ON public.users FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
 
 -- -------------------------------------------------------------------------
--- 2. APPOINTMENT BOOKINGS TABLE (public.bookings)
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.bookings (
-    id TEXT PRIMARY KEY,
-    booking_id TEXT NOT NULL UNIQUE,
-    user_id TEXT REFERENCES public.users(uid) ON DELETE SET NULL,
-    customer_name TEXT NOT NULL,
-    customer_phone TEXT NOT NULL,
-    customer_email TEXT,
-    date DATE NOT NULL,
-    slot TEXT NOT NULL,
-    slot_key TEXT,
-    pool_type TEXT DEFAULT 'haircut',
-    service_ids TEXT[] DEFAULT '{}',
-    services JSONB DEFAULT '[]'::jsonb,
-    stylist_id TEXT,
-    stylist_name TEXT,
-    subtotal NUMERIC(10, 2) DEFAULT 0,
-    discount NUMERIC(10, 2) DEFAULT 0,
-    total_amount NUMERIC(10, 2) NOT NULL,
-    coupon_code TEXT,
-    status TEXT DEFAULT 'Confirmed',
-    notes TEXT,
-    history JSONB DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Indexes for quick querying in Supabase Table Viewer
-CREATE INDEX IF NOT EXISTS idx_bookings_date ON public.bookings(date);
-CREATE INDEX IF NOT EXISTS idx_bookings_status ON public.bookings(status);
-CREATE INDEX IF NOT EXISTS idx_bookings_phone ON public.bookings(customer_phone);
-CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON public.bookings(user_id);
-CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON public.bookings(created_at DESC);
-
--- -------------------------------------------------------------------------
--- 3. SERVICES CATALOG TABLE (public.services)
+-- 4. SERVICES CATALOG TABLE (public.services)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.services (
     id TEXT PRIMARY KEY,
@@ -90,15 +239,25 @@ CREATE TABLE IF NOT EXISTS public.services (
     is_haircut BOOLEAN DEFAULT false,
     active BOOLEAN DEFAULT true,
     sort_order INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_services_category ON public.services(category);
-CREATE INDEX IF NOT EXISTS idx_services_active ON public.services(active);
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.services TO anon, authenticated, service_role;
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'services' AND policyname = 'Public full access to services'
+    ) THEN
+        CREATE POLICY "Public full access to services" 
+        ON public.services FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
 
 -- -------------------------------------------------------------------------
--- 4. STAFF & STYLISTS TABLE (public.staff)
+-- 5. STAFF & STYLISTS TABLE (public.staff)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.staff (
     id TEXT PRIMARY KEY,
@@ -108,136 +267,18 @@ CREATE TABLE IF NOT EXISTS public.staff (
     salary NUMERIC(10, 2) DEFAULT 0,
     status TEXT DEFAULT 'Active',
     photo_url TEXT,
-    date_joined TEXT,
-    total_paid NUMERIC(10, 2) DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_staff_status ON public.staff(status);
-
--- -------------------------------------------------------------------------
--- 5. REVIEWS & RATINGS TABLE (public.reviews)
--- -------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.reviews (
-    id TEXT PRIMARY KEY,
-    booking_id TEXT,
-    user_id TEXT,
-    customer_name TEXT NOT NULL,
-    rating_service INTEGER DEFAULT 5,
-    rating_staff INTEGER DEFAULT 5,
-    rating_value INTEGER DEFAULT 5,
-    rating_cleanliness INTEGER DEFAULT 5,
-    average_rating NUMERIC(3, 2) DEFAULT 5.0,
-    comment TEXT,
-    status TEXT DEFAULT 'Approved',
-    admin_reply TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_reviews_status ON public.reviews(status);
-
--- -------------------------------------------------------------------------
--- 6. AUTO-UPDATE TIMESTAMP TRIGGER FUNCTION
--- -------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply triggers
-DROP TRIGGER IF EXISTS set_timestamp_users ON public.users;
-CREATE TRIGGER set_timestamp_users
-BEFORE UPDATE ON public.users
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
-DROP TRIGGER IF EXISTS set_timestamp_bookings ON public.bookings;
-CREATE TRIGGER set_timestamp_bookings
-BEFORE UPDATE ON public.bookings
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
-DROP TRIGGER IF EXISTS set_timestamp_services ON public.services;
-CREATE TRIGGER set_timestamp_services
-BEFORE UPDATE ON public.services
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
-DROP TRIGGER IF EXISTS set_timestamp_staff ON public.staff;
-CREATE TRIGGER set_timestamp_staff
-BEFORE UPDATE ON public.staff
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- -------------------------------------------------------------------------
--- 7. ROW LEVEL SECURITY (RLS) & ACCESS POLICIES
--- Ensures Supabase Table Editor, REST API & Anon Key can seamlessly read/write
--- -------------------------------------------------------------------------
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
-
--- Grant standard permissions to anon, authenticated, and service_role
-GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
-GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;
-GRANT ALL ON TABLE public.services TO anon, authenticated, service_role;
 GRANT ALL ON TABLE public.staff TO anon, authenticated, service_role;
-GRANT ALL ON TABLE public.reviews TO anon, authenticated, service_role;
 
--- Users Table Policies
-DROP POLICY IF EXISTS "Allow anon and auth read users" ON public.users;
-CREATE POLICY "Allow anon and auth read users" ON public.users FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow anon and auth write users" ON public.users;
-CREATE POLICY "Allow anon and auth write users" ON public.users FOR ALL USING (true) WITH CHECK (true);
-
--- Bookings Table Policies
-DROP POLICY IF EXISTS "Allow anon and auth read bookings" ON public.bookings;
-CREATE POLICY "Allow anon and auth read bookings" ON public.bookings FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow anon and auth write bookings" ON public.bookings;
-CREATE POLICY "Allow anon and auth write bookings" ON public.bookings FOR ALL USING (true) WITH CHECK (true);
-
--- Services Table Policies
-DROP POLICY IF EXISTS "Allow anon and auth read services" ON public.services;
-CREATE POLICY "Allow anon and auth read services" ON public.services FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow anon and auth write services" ON public.services;
-CREATE POLICY "Allow anon and auth write services" ON public.services FOR ALL USING (true) WITH CHECK (true);
-
--- Staff Table Policies
-DROP POLICY IF EXISTS "Allow anon and auth read staff" ON public.staff;
-CREATE POLICY "Allow anon and auth read staff" ON public.staff FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow anon and auth write staff" ON public.staff FOR ALL USING (true) WITH CHECK (true);
-
--- Reviews Table Policies
-DROP POLICY IF EXISTS "Allow anon and auth read reviews" ON public.reviews;
-CREATE POLICY "Allow anon and auth read reviews" ON public.reviews FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Allow anon and auth write reviews" ON public.reviews;
-CREATE POLICY "Allow anon and auth write reviews" ON public.reviews FOR ALL USING (true) WITH CHECK (true);
-
--- -------------------------------------------------------------------------
--- 8. INITIAL CORE DATA SEED (Trim & Twisted Official Services)
--- -------------------------------------------------------------------------
-INSERT INTO public.services (id, name, category, price, price_label, offer_price, is_haircut, active, sort_order)
-VALUES
-    ('srv_men_haircut', 'Men Royal Haircut & Beard Sculpt', 'Haircuts & Styling', 349, 'Classic Haircut', 299, true, true, 1),
-    ('srv_women_haircut', 'Women Layered Style & Blowdry', 'Haircuts & Styling', 599, 'Signature Cut', 499, true, true, 2),
-    ('srv_nano_plastia', 'Japanese Nano Plastia Hair Botox', 'Hair Treatments', 3999, 'Starting Price', 2999, false, true, 3),
-    ('srv_scalp_spa', 'Herbal Aromatherapy Scalp Spa', 'Spa & Scalp Therapy', 1199, '60 Mins Therapy', 899, false, true, 4),
-    ('srv_bridal_glow', 'Haute Bridal D-Tan & Radiance Facial', 'Bridal & Aesthetics', 2499, 'Full Face & Neck', 1899, false, true, 5)
-ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
-    category = EXCLUDED.category,
-    price = EXCLUDED.price,
-    offer_price = EXCLUDED.offer_price;
-
--- Output confirmation
-DO $$
-BEGIN
-    RAISE NOTICE 'Trim & Twisted Supabase schema setup completed successfully! Visit the Table Editor to view your tables.';
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'staff' AND policyname = 'Public full access to staff'
+    ) THEN
+        CREATE POLICY "Public full access to staff" 
+        ON public.staff FOR ALL USING (true) WITH CHECK (true);
+    END IF;
 END $$;

@@ -13,7 +13,6 @@ import type {
   SalonSettings
 } from '../types';
 import { db, uploadImageOrMedia, resyncOfficialServicesMenu, clearAllBookingsAndResetSlots } from '../services/firebase';
-import { syncAllToSupabase, testSupabaseConnection, SUPABASE_CONFIG } from '../services/supabaseSync';
 import { formatDateDDMMYYYY } from '../utils/date';
 import {
   collection,
@@ -41,7 +40,6 @@ import {
   Clock,
   Code,
   Copy,
-  Database,
   DollarSign,
   Download,
   Edit2,
@@ -57,6 +55,7 @@ import {
   LogOut,
   MessageCircle,
   MessageSquare,
+  Phone,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -119,7 +118,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
 
   // Active Admin Tab
   const [adminTab, setAdminTab] = useState<
-    'dashboard' | 'bookings' | 'customers' | 'supabase' | 'sales' | 'services' | 'staff' | 'gallery' | 'coupons' | 'reviews' | 'settings'
+    'dashboard' | 'bookings' | 'customers' | 'sales' | 'services' | 'staff' | 'gallery' | 'coupons' | 'reviews' | 'settings'
   >('dashboard');
 
   // Salon Data Collections
@@ -646,9 +645,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
             <aside className="w-full md:w-64 bg-[#070B14] border-b md:border-b-0 md:border-r border-[#D4AF37]/20 flex flex-row md:flex-col p-2 sm:p-3 gap-1 overflow-x-auto md:overflow-y-auto shrink-0 scrollbar-none">
               {[
                 { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                { id: 'bookings', label: 'Bookings CRM & Table Editor', icon: Calendar },
-                { id: 'customers', label: 'Users Table Editor', icon: UserCheck },
-                { id: 'supabase', label: 'Supabase SQL Connector', icon: Database },
+                { id: 'bookings', label: 'Booking CRM', icon: Calendar },
+                { id: 'customers', label: 'Users Directory', icon: UserCheck },
                 { id: 'sales', label: 'Sales Reports', icon: BarChart3 },
                 { id: 'services', label: 'Services Menu', icon: Scissors },
                 { id: 'staff', label: 'Staff & Salaries', icon: Users },
@@ -714,15 +712,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
                 <AdminCustomersManager
                   bookings={bookings}
                   users={usersList}
-                />
-              )}
-
-              {adminTab === 'supabase' && (
-                <AdminSupabaseManager
-                  bookings={bookings}
-                  users={usersList}
-                  services={services}
-                  staff={staff}
                 />
               )}
 
@@ -928,9 +917,10 @@ const AdminDashboardOverview: React.FC<{
       <div className="flex flex-wrap gap-3">
         <button
           onClick={() => onNavigateTab('bookings')}
-          className="px-4 py-2 rounded-xl bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase"
+          className="px-4 py-2 rounded-xl bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer hover:brightness-110 transition-all shadow-md"
         >
-          View Bookings Queue
+          <Calendar className="w-4 h-4" />
+          <span>Open Booking CRM</span>
         </button>
         <button
           onClick={() => onNavigateTab('sales')}
@@ -1627,7 +1617,7 @@ const AdminServicesManager: React.FC<{
 };
 
 /* =========================================================================
-   SUB-COMPONENT 4: BOOKINGS MANAGER (WALK-INS, CONFIRM, CANCEL, COMPLETE)
+   SUB-COMPONENT 4: BOOKINGS CRM & APPOINTMENTS (TABLE VIEWER & CARDS QUEUE)
    ========================================================================= */
 const AdminBookingsManager: React.FC<{
   bookings: BookingItem[];
@@ -1637,8 +1627,14 @@ const AdminBookingsManager: React.FC<{
   onRefresh: () => void;
 }> = ({ bookings, services, staff, onRefresh }) => {
   const [localBookings, setLocalBookings] = useState<BookingItem[]>(bookings);
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [filterDate, setFilterDate] = useState<string>('');
+  const [dateQuickFilter, setDateQuickFilter] = useState<'all' | 'today' | 'upcoming' | 'past'>('all');
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [selectedBookingForDetail, setSelectedBookingForDetail] = useState<BookingItem | null>(null);
+  const [sqlModalOpen, setSqlModalOpen] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
 
   useEffect(() => {
     setLocalBookings(bookings);
@@ -1651,17 +1647,126 @@ const AdminBookingsManager: React.FC<{
   const [walkinDate, setWalkinDate] = useState(new Date().toISOString().split('T')[0]);
   const [walkinSlot, setWalkinSlot] = useState(APP_CONFIG.booking.slots[0]);
   const [walkinServiceIds, setWalkinServiceIds] = useState<string[]>([]);
+  const [walkinStylistId, setWalkinStylistId] = useState<string>('');
+  const [walkinNotes, setWalkinNotes] = useState('');
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [clearingSlots, setClearingSlots] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const filteredBookings = localBookings.filter((b) => {
-    const matchStatus = filterStatus === 'All' || b.status === filterStatus;
-    const matchDate = !filterDate || b.date === filterDate;
-    return matchStatus && matchDate;
-  });
+  // Filtered Bookings with Search & Multi-Filters
+  const filteredBookings = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const q = searchQuery.trim().toLowerCase();
+
+    return localBookings.filter((b) => {
+      // 1. Status Filter
+      if (filterStatus !== 'All') {
+        const bStatus = (b.status || '').toLowerCase();
+        if (bStatus !== filterStatus.toLowerCase()) return false;
+      }
+
+      // 2. Date Quick Filter or Date Input
+      if (filterDate) {
+        if (b.date !== filterDate) return false;
+      } else if (dateQuickFilter === 'today') {
+        if (b.date !== today) return false;
+      } else if (dateQuickFilter === 'upcoming') {
+        if ((b.date || '') < today) return false;
+      } else if (dateQuickFilter === 'past') {
+        if ((b.date || '') > today) return false;
+      }
+
+      // 3. Search Query
+      if (q) {
+        const name = (b.customerName || '').toLowerCase();
+        const phone = (b.customerPhone || '').toLowerCase();
+        const bId = (b.bookingId || b.id || '').toLowerCase();
+        const email = (b.customerEmail || '').toLowerCase();
+        const stylist = (b.stylistName || '').toLowerCase();
+        const slot = (b.slot || '').toLowerCase();
+        const srvNames = (b.services || []).map((s) => s.name.toLowerCase()).join(' ');
+        const matches =
+          name.includes(q) ||
+          phone.includes(q) ||
+          bId.includes(q) ||
+          email.includes(q) ||
+          stylist.includes(q) ||
+          slot.includes(q) ||
+          srvNames.includes(q);
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [localBookings, filterStatus, filterDate, dateQuickFilter, searchQuery]);
+
+  // Statistics Computations
+  const stats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayList = localBookings.filter((b) => b.date === today);
+    const confirmedList = localBookings.filter((b) => (b.status || '').toLowerCase() === 'confirmed');
+    const completedList = localBookings.filter((b) => (b.status || '').toLowerCase() === 'completed');
+    const cancelledList = localBookings.filter((b) =>
+      ['cancelled', 'no-show'].includes((b.status || '').toLowerCase())
+    );
+    const totalRev = completedList.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+
+    return {
+      total: localBookings.length,
+      today: todayList.length,
+      confirmed: confirmedList.length,
+      completed: completedList.length,
+      cancelled: cancelledList.length,
+      totalRevenue: totalRev,
+    };
+  }, [localBookings]);
+
+  // Export Bookings to CSV File
+  const handleExportCSV = () => {
+    const headers = [
+      'Booking ID',
+      'Date',
+      'Time Slot',
+      'Customer Name',
+      'Phone',
+      'Email',
+      'Services',
+      'Stylist',
+      'Subtotal',
+      'Discount',
+      'Total Amount',
+      'Status',
+      'Pool',
+      'Created At'
+    ];
+    const rows = filteredBookings.map((b) => [
+      b.bookingId || b.id,
+      b.date,
+      b.slot,
+      `"${(b.customerName || '').replace(/"/g, '""')}"`,
+      b.customerPhone,
+      b.customerEmail || '',
+      `"${(b.services || []).map((s) => s.name).join('; ').replace(/"/g, '""')}"`,
+      b.stylistName || 'Any',
+      b.subtotal || b.totalAmount,
+      b.discount || 0,
+      b.totalAmount,
+      b.status,
+      b.poolType || 'other',
+      b.createdAt || ''
+    ]);
+    const csvContent =
+      'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `trim_twisted_bookings_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleClearSlots = async () => {
     setClearingSlots(true);
@@ -1669,7 +1774,7 @@ const AdminBookingsManager: React.FC<{
       await clearAllBookingsAndResetSlots();
       setLocalBookings([]);
       setConfirmClearOpen(false);
-      setActionMsg('All slots are now 100% empty and all bookings cleared.');
+      setActionMsg('All salon slots are now reset and all previous bookings cleared.');
       setTimeout(() => setActionMsg(null), 4000);
       onRefresh();
     } catch (err: any) {
@@ -1690,15 +1795,23 @@ const AdminBookingsManager: React.FC<{
     // Optimistic UI update immediately
     setLocalBookings((prev) =>
       prev.map((b) =>
-        (b.id === booking.id || b.bookingId === booking.bookingId)
+        b.id === booking.id || b.bookingId === booking.bookingId
           ? { ...b, status: newStatus }
           : b
       )
     );
 
+    if (selectedBookingForDetail && (selectedBookingForDetail.id === booking.id || selectedBookingForDetail.bookingId === booking.bookingId)) {
+      setSelectedBookingForDetail((prev) => prev ? { ...prev, status: newStatus } : null);
+    }
+
     try {
       // 1. Release seat capacity in slotUsage if cancelling or marking no-show
-      const isReleasing = (newStatus === 'Cancelled' || newStatus === 'No-show') && booking.status !== 'Cancelled' && booking.status !== 'No-show';
+      const isReleasing =
+        (newStatus === 'Cancelled' || newStatus === 'No-show') &&
+        booking.status !== 'Cancelled' &&
+        booking.status !== 'No-show';
+
       if (isReleasing) {
         const slotKey = booking.slotKey || `${booking.date}_${encodeURIComponent(booking.slot)}`;
         const slotUsageRef = doc(db, 'slotUsage', slotKey);
@@ -1728,14 +1841,13 @@ const AdminBookingsManager: React.FC<{
       if (booking.bookingId && booking.bookingId !== booking.id) {
         await setDoc(doc(db, 'bookings', booking.bookingId), { status: newStatus }, { merge: true }).catch(() => {});
       }
-      
-      setActionMsg(`Booking ${booking.bookingId} successfully updated to ${newStatus}.`);
+
+      setActionMsg(`Booking ${booking.bookingId} marked as ${newStatus}.`);
       setTimeout(() => setActionMsg(null), 3500);
       onRefresh();
     } catch (err: any) {
       console.error('Failed to update status:', err);
       setActionMsg('Failed to update status: ' + (err?.message || 'Error'));
-      // Revert on error
       setLocalBookings(bookings);
     } finally {
       setUpdatingId(null);
@@ -1745,13 +1857,14 @@ const AdminBookingsManager: React.FC<{
   const handleAddWalkin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!walkinName.trim() || !walkinPhone.trim() || walkinServiceIds.length === 0) {
-      alert('Please fill customer details and pick services.');
+      alert('Please fill customer details and pick at least one service.');
       return;
     }
 
     const srvObjects = services.filter((s) => walkinServiceIds.includes(s.id));
     const subtotal = srvObjects.reduce((acc, s) => acc + (s.offerPrice || s.price || 0), 0);
     const hasHaircut = srvObjects.some((s) => s.isHaircut);
+    const chosenStylist = staff.find((st) => st.id === walkinStylistId);
 
     const bookingId = `TT-${walkinDate.replace(/-/g, '').substring(2)}-${Math.floor(1000 + Math.random() * 9000)}`;
     const slotKey = `${walkinDate}_${encodeURIComponent(walkinSlot)}`;
@@ -1805,6 +1918,8 @@ const AdminBookingsManager: React.FC<{
         offerPrice: s.offerPrice,
         isHaircut: s.isHaircut,
       })),
+      stylistId: chosenStylist?.id || '',
+      stylistName: chosenStylist?.name || '',
       date: walkinDate,
       slot: walkinSlot,
       slotKey,
@@ -1813,41 +1928,71 @@ const AdminBookingsManager: React.FC<{
       discount: 0,
       totalAmount: subtotal,
       status: 'Confirmed',
-      notes: 'Walk-in booking created by Admin',
+      notes: walkinNotes.trim() || 'Walk-in booking created by Admin',
       createdAt: new Date().toISOString(),
     };
 
-    await addDoc(collection(db, 'bookings'), newBooking);
+    const docRef = await addDoc(collection(db, 'bookings'), newBooking);
+    const savedBooking = { ...newBooking, id: docRef.id };
+    setLocalBookings((prev) => [savedBooking, ...prev]);
+
     setWalkinOpen(false);
     setWalkinName('');
     setWalkinPhone('');
     setWalkinServiceIds([]);
+    setWalkinStylistId('');
+    setWalkinNotes('');
+    setActionMsg(`Walk-in appointment ${bookingId} successfully scheduled!`);
+    setTimeout(() => setActionMsg(null), 3500);
     onRefresh();
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+      {/* Header & Main Controls */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h3 className="font-['Cinzel'] text-xl font-bold text-white">Appointments & Bookings</h3>
-          <p className="text-xs text-gray-400">
-            Confirm, complete, reschedule or dispatch direct WhatsApp updates to patrons.
+          <div className="flex items-center gap-2">
+            <h3 className="font-['Cinzel'] text-xl font-bold text-white">Booking CRM & Appointments</h3>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#D4AF37]/20 text-[#FFDF78] border border-[#D4AF37]/40">
+              Live Database
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Real-time appointment schedule, customer table viewer, WhatsApp communication & status workflow.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => setSqlModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-[#070B14] hover:bg-[#D4AF37]/15 border border-[#D4AF37]/50 text-[#FFDF78] font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+            title="Get Supabase Table SQL to import this CSV with 100% matching headers"
+          >
+            <Code className="w-3.5 h-3.5 text-[#FFDF78]" />
+            <span>Supabase CSV Table SQL</span>
+          </button>
+          <button
+            onClick={handleExportCSV}
+            disabled={filteredBookings.length === 0}
+            className="px-3.5 py-2 rounded-xl bg-[#070B14] hover:bg-white/5 border border-white/20 text-white font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+            title="Download appointments table as CSV spreadsheet"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
           <button
             onClick={() => setConfirmClearOpen(true)}
             disabled={clearingSlots}
-            className="px-3.5 py-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3 py-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
             title="Empty all full slots and clear previous test reservations"
           >
             <RotateCcw className="w-3.5 h-3.5 text-red-400" />
-            <span>{clearingSlots ? 'Resetting Slots...' : 'Empty All Slots & Clear Bookings'}</span>
+            <span>{clearingSlots ? 'Resetting...' : 'Reset Slots'}</span>
           </button>
           <button
             onClick={() => setWalkinOpen(true)}
-            className="px-4 py-2 rounded-xl bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow hover:brightness-110 active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4" />
             <span>Add Walk-in Booking</span>
@@ -1856,9 +2001,661 @@ const AdminBookingsManager: React.FC<{
       </div>
 
       {actionMsg && (
-        <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+        <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-in fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{actionMsg}</span>
+        </div>
+      )}
+
+      {/* KPI Metric Summary Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-white/10">
+          <div className="text-[10px] uppercase font-mono text-gray-400">Total Bookings</div>
+          <div className="text-xl font-bold font-mono text-white mt-1">{stats.total}</div>
+          <div className="text-[10px] text-gray-500">In salon history</div>
+        </div>
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30">
+          <div className="text-[10px] uppercase font-mono text-[#FFDF78]">Today</div>
+          <div className="text-xl font-bold font-mono text-[#FFDF78] mt-1">{stats.today}</div>
+          <div className="text-[10px] text-gray-400">Scheduled today</div>
+        </div>
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-emerald-500/30">
+          <div className="text-[10px] uppercase font-mono text-emerald-400">Confirmed</div>
+          <div className="text-xl font-bold font-mono text-emerald-300 mt-1">{stats.confirmed}</div>
+          <div className="text-[10px] text-gray-500">Upcoming / Active</div>
+        </div>
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-blue-500/30">
+          <div className="text-[10px] uppercase font-mono text-blue-400">Completed</div>
+          <div className="text-xl font-bold font-mono text-blue-300 mt-1">{stats.completed}</div>
+          <div className="text-[10px] text-gray-500">Fulfilled</div>
+        </div>
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-red-500/30">
+          <div className="text-[10px] uppercase font-mono text-red-400">Cancelled / No-show</div>
+          <div className="text-xl font-bold font-mono text-red-300 mt-1">{stats.cancelled}</div>
+          <div className="text-[10px] text-gray-500">Capacity freed</div>
+        </div>
+        <div className="p-3.5 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30">
+          <div className="text-[10px] uppercase font-mono text-gray-400">Realized Revenue</div>
+          <div className="text-xl font-bold font-mono text-emerald-400 mt-1">₹{stats.totalRevenue}</div>
+          <div className="text-[10px] text-gray-500">Completed services</div>
+        </div>
+      </div>
+
+      {/* Search, Filter Toolbar & View Mode Toggle */}
+      <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-3">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search by customer name, phone, booking ID, stylist, or service..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#0E1628] border border-[#D4AF37]/30 rounded-xl pl-9 pr-9 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37]"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-2 self-end md:self-auto">
+            <span className="text-xs text-gray-400 font-mono hidden sm:inline">View Mode:</span>
+            <div className="flex bg-[#0E1628] p-1 rounded-xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'table'
+                    ? 'bg-[#D4AF37] text-[#070B14] font-bold shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <Table className="w-3.5 h-3.5" />
+                <span>Table Viewer</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'cards'
+                    ? 'bg-[#D4AF37] text-[#070B14] font-bold shadow'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Cards Queue</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Multi-Filters: Status & Dates */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-white/5">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Status Filter */}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-[#0E1628] border border-[#D4AF37]/35 rounded-xl px-3 py-1.5 text-xs text-white cursor-pointer focus:outline-none focus:border-[#D4AF37]"
+            >
+              <option value="All">All Statuses ({localBookings.length})</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Completed">Completed</option>
+              <option value="Rescheduled">Rescheduled</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="No-show">No-show</option>
+            </select>
+
+            {/* Quick Date Range Pills */}
+            <div className="flex items-center gap-1 bg-[#0E1628] p-1 rounded-xl border border-white/10 text-[11px]">
+              {(['all', 'today', 'upcoming', 'past'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    setDateQuickFilter(mode);
+                    setFilterDate('');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg capitalize font-medium transition-all ${
+                    dateQuickFilter === mode && !filterDate
+                      ? 'bg-[#D4AF37] text-[#070B14] font-bold'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+
+            {/* Specific Date Picker */}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => {
+                  setFilterDate(e.target.value);
+                  setDateQuickFilter('all');
+                }}
+                className="bg-[#0E1628] border border-[#D4AF37]/35 rounded-xl px-2.5 py-1.5 text-xs text-white font-mono"
+              />
+              {filterDate && (
+                <button
+                  onClick={() => setFilterDate('')}
+                  className="text-xs text-gray-400 hover:text-white underline cursor-pointer"
+                >
+                  Clear Date
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-xs text-gray-400 font-mono">
+            Showing <strong className="text-[#FFDF78]">{filteredBookings.length}</strong> of{' '}
+            <span>{localBookings.length}</span> appointments
+          </div>
+        </div>
+      </div>
+
+      {/* Main Workspace: Empty State OR Table Viewer OR Cards Queue */}
+      {localBookings.length === 0 ? (
+        /* Empty Database State */
+        <div className="p-12 text-center rounded-3xl bg-[#070B14] border border-[#D4AF37]/30 space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/40 flex items-center justify-center mx-auto text-[#FFDF78] shadow-[0_0_30px_rgba(212,175,55,0.2)]">
+            <Calendar className="w-8 h-8" />
+          </div>
+          <div>
+            <h4 className="font-['Cinzel'] text-xl font-bold text-white">No Appointments in Database Yet</h4>
+            <p className="text-xs text-gray-400 max-w-md mx-auto mt-1 leading-relaxed">
+              When customers book appointments online or when you add walk-in clients, they will immediately appear here in real time.
+            </p>
+          </div>
+          <button
+            onClick={() => setWalkinOpen(true)}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase inline-flex items-center gap-2 cursor-pointer shadow hover:brightness-110 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create First Walk-in Appointment</span>
+          </button>
+        </div>
+      ) : filteredBookings.length === 0 ? (
+        /* Empty Filter Results State */
+        <div className="p-12 text-center rounded-3xl bg-[#070B14] border border-white/10 space-y-3">
+          <Filter className="w-10 h-10 text-gray-500 mx-auto" />
+          <h4 className="text-base font-bold text-white">No Appointments Match Current Filter</h4>
+          <p className="text-xs text-gray-400 max-w-sm mx-auto">
+            Try adjusting your search query, status dropdown, or selecting a different date range.
+          </p>
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setFilterStatus('All');
+              setFilterDate('');
+              setDateQuickFilter('all');
+            }}
+            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-medium cursor-pointer"
+          >
+            Reset All Filters
+          </button>
+        </div>
+      ) : viewMode === 'table' ? (
+        /* TABLE VIEWER SPREADSHEET VIEW */
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14] shadow-2xl">
+          <table className="w-full text-left text-xs text-gray-300">
+            <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10 tracking-wider">
+              <tr>
+                <th className="py-3 px-4">Booking ID</th>
+                <th className="py-3 px-4">Customer & Contact</th>
+                <th className="py-3 px-4">Date & Slot</th>
+                <th className="py-3 px-4">Pool</th>
+                <th className="py-3 px-4">Services</th>
+                <th className="py-3 px-4">Stylist</th>
+                <th className="py-3 px-4 text-right">Payable</th>
+                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5 font-sans">
+              {filteredBookings.map((b) => {
+                const isHaircut = b.poolType === 'haircut';
+                const statusColor =
+                  b.status === 'Completed'
+                    ? 'bg-blue-950 text-blue-300 border-blue-500/40'
+                    : b.status === 'Confirmed'
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
+                    : b.status === 'Rescheduled'
+                    ? 'bg-amber-950 text-amber-300 border-amber-500/40'
+                    : 'bg-red-950 text-red-300 border-red-500/40';
+
+                return (
+                  <tr
+                    key={b.id || b.bookingId}
+                    className="hover:bg-white/5 transition-colors group"
+                  >
+                    {/* Booking ID */}
+                    <td className="py-3.5 px-4 font-mono font-bold text-[#FFDF78]">
+                      <button
+                        onClick={() => setSelectedBookingForDetail(b)}
+                        className="hover:underline flex items-center gap-1 text-left cursor-pointer"
+                        title="Click to view full booking details"
+                      >
+                        <span>{b.bookingId || b.id}</span>
+                      </button>
+                    </td>
+
+                    {/* Customer */}
+                    <td className="py-3.5 px-4">
+                      <div className="font-semibold text-white">{b.customerName}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="font-mono text-gray-400 text-[11px]">{b.customerPhone}</span>
+                        {b.customerPhone && (
+                          <a
+                            href={`https://wa.me/91${b.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
+                              `Hello ${b.customerName}, this is Trim & Twisted Salon regarding your appointment ${b.bookingId} on ${formatDateDDMMYYYY(b.date)} at ${b.slot}.`
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1 rounded bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366]/30 transition-colors"
+                            title="Direct WhatsApp Message"
+                          >
+                            <MessageCircle className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Date & Slot */}
+                    <td className="py-3.5 px-4">
+                      <div className="text-white font-medium">{formatDateDDMMYYYY(b.date)}</div>
+                      <div className="text-[#FFDF78] font-mono text-[11px] mt-0.5 font-semibold">
+                        {b.slot}
+                      </div>
+                    </td>
+
+                    {/* Pool */}
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                          isHaircut
+                            ? 'bg-amber-950/80 text-amber-300 border border-amber-500/30'
+                            : 'bg-indigo-950/80 text-indigo-300 border border-indigo-500/30'
+                        }`}
+                      >
+                        {isHaircut ? 'Haircut' : 'Salon Care'}
+                      </span>
+                    </td>
+
+                    {/* Services */}
+                    <td className="py-3.5 px-4 max-w-xs">
+                      <div className="text-gray-200 line-clamp-2 leading-relaxed">
+                        {(b.services || []).map((s) => s.name).join(', ') || 'Service'}
+                      </div>
+                      {b.notes && (
+                        <div className="text-[10px] text-gray-400 italic mt-0.5 truncate">
+                          Note: {b.notes}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Stylist */}
+                    <td className="py-3.5 px-4 text-gray-300 font-medium">
+                      {b.stylistName || 'Any Available'}
+                    </td>
+
+                    {/* Amount */}
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400 text-sm">
+                      ₹{b.totalAmount}
+                      {b.discount ? (
+                        <span className="block text-[10px] text-gray-500 line-through">
+                          ₹{b.subtotal}
+                        </span>
+                      ) : null}
+                    </td>
+
+                    {/* Status with quick selector */}
+                    <td className="py-3.5 px-4 text-center">
+                      <select
+                        value={b.status}
+                        onChange={(e) => handleUpdateStatus(b, e.target.value as any)}
+                        disabled={updatingId === (b.id || b.bookingId)}
+                        className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg border cursor-pointer focus:outline-none ${statusColor}`}
+                      >
+                        <option value="Confirmed" className="bg-[#0E1628] text-emerald-300">Confirmed</option>
+                        <option value="Completed" className="bg-[#0E1628] text-blue-300">Completed</option>
+                        <option value="Rescheduled" className="bg-[#0E1628] text-amber-300">Rescheduled</option>
+                        <option value="Cancelled" className="bg-[#0E1628] text-red-300">Cancelled</option>
+                        <option value="No-show" className="bg-[#0E1628] text-orange-300">No-show</option>
+                      </select>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
+                      <button
+                        onClick={() => setSelectedBookingForDetail(b)}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-[#D4AF37]/20 text-[#FFDF78] cursor-pointer transition-colors"
+                        title="View Full Booking Details"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      {b.status !== 'Completed' && (
+                        <button
+                          onClick={() => handleUpdateStatus(b, 'Completed')}
+                          disabled={updatingId === (b.id || b.bookingId)}
+                          className="p-1.5 rounded-lg bg-blue-950/60 hover:bg-blue-900 border border-blue-500/40 text-blue-300 cursor-pointer transition-colors"
+                          title="Quick Mark Completed"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* CARDS QUEUE VIEW */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {filteredBookings.map((b) => (
+            <div
+              key={b.id || b.bookingId}
+              className="p-5 rounded-2xl bg-[#070B14] border border-white/10 hover:border-[#D4AF37]/40 transition-all flex flex-col justify-between space-y-4 shadow-lg"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-[#FFDF78] bg-[#15223C] px-2.5 py-0.5 rounded border border-[#D4AF37]/30">
+                      {b.bookingId}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                        b.status === 'Completed'
+                          ? 'bg-blue-950 text-blue-300 border border-blue-500/30'
+                          : b.status === 'Confirmed'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                          : b.status === 'Rescheduled'
+                          ? 'bg-amber-950 text-amber-300 border border-amber-500/30'
+                          : 'bg-red-950 text-red-300 border border-red-500/30'
+                      }`}
+                    >
+                      {b.status}
+                    </span>
+                  </div>
+
+                  <span className="text-xs text-gray-400 font-mono">
+                    {b.poolType === 'haircut' ? 'Haircut Pool' : 'Salon Care Pool'}
+                  </span>
+                </div>
+
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-base font-bold text-white">{b.customerName}</h4>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[#FFDF78] font-mono text-xs font-bold">{b.customerPhone}</span>
+                      {b.customerPhone && (
+                        <a
+                          href={`https://wa.me/91${b.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
+                            `Hello ${b.customerName}, this is Trim & Twisted Salon regarding your appointment ${b.bookingId} on ${formatDateDDMMYYYY(b.date)} at ${b.slot}.`
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2 py-0.5 rounded bg-[#25D366]/20 border border-[#25D366]/40 text-[#25D366] text-[11px] font-semibold flex items-center gap-1 hover:bg-[#25D366]/30 transition-colors"
+                        >
+                          <MessageCircle className="w-3 h-3" />
+                          <span>WhatsApp</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-emerald-400 text-lg">₹{b.totalAmount}</span>
+                    <span className="block text-[11px] text-gray-400 font-mono">
+                      {formatDateDDMMYYYY(b.date)} &bull; {b.slot}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Services Pills */}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {(b.services || []).map((s) => (
+                    <span
+                      key={s.id}
+                      className="px-2 py-0.5 rounded-md bg-[#0E1628] border border-white/10 text-[11px] text-gray-300"
+                    >
+                      {s.name}
+                    </span>
+                  ))}
+                </div>
+
+                {b.stylistName && (
+                  <div className="mt-2 text-xs text-gray-400">
+                    Stylist: <strong className="text-white">{b.stylistName}</strong>
+                  </div>
+                )}
+
+                {b.notes && (
+                  <p className="mt-1 text-xs text-gray-400 italic">
+                    &ldquo;{b.notes}&rdquo;
+                  </p>
+                )}
+              </div>
+
+              {/* Status Action Buttons */}
+              <div className="pt-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateStatus(b, 'Confirmed')}
+                    disabled={updatingId === (b.id || b.bookingId)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                      b.status === 'Confirmed'
+                        ? 'bg-emerald-600 text-white shadow font-bold'
+                        : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-emerald-300'
+                    }`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Confirmed</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateStatus(b, 'Completed')}
+                    disabled={updatingId === (b.id || b.bookingId)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                      b.status === 'Completed'
+                        ? 'bg-blue-600 text-white shadow font-bold'
+                        : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-blue-300'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Completed</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateStatus(b, 'No-show')}
+                    disabled={updatingId === (b.id || b.bookingId)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      b.status === 'No-show'
+                        ? 'bg-amber-600 text-white font-bold'
+                        : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-amber-300'
+                    }`}
+                    title="Customer not showed up (releases slot)"
+                  >
+                    <span>No-show</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateStatus(b, 'Cancelled')}
+                    disabled={updatingId === (b.id || b.bookingId)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      b.status === 'Cancelled'
+                        ? 'bg-red-600 text-white font-bold'
+                        : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-red-300'
+                    }`}
+                    title="Cancel reservation (releases slot)"
+                  >
+                    <span>Cancel</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedBookingForDetail(b)}
+                  className="px-2.5 py-1.5 rounded-lg text-xs text-[#FFDF78] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Details</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Booking Details Modal */}
+      {selectedBookingForDetail && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-lg bg-[#0E1628] border-2 border-[#D4AF37] rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div>
+                <span className="font-mono text-xs font-bold text-[#FFDF78] bg-[#15223C] px-2 py-0.5 rounded border border-[#D4AF37]/30">
+                  {selectedBookingForDetail.bookingId}
+                </span>
+                <h4 className="font-['Cinzel'] text-xl font-bold text-white mt-1">
+                  Appointment Details
+                </h4>
+              </div>
+              <button
+                onClick={() => setSelectedBookingForDetail(null)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Customer Info */}
+            <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-2">
+              <div className="text-[10px] uppercase font-mono text-gray-400">Patron Information</div>
+              <div className="text-base font-bold text-white">
+                {selectedBookingForDetail.customerName}
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-mono text-[#FFDF78]">{selectedBookingForDetail.customerPhone}</span>
+                {selectedBookingForDetail.customerPhone && (
+                  <a
+                    href={`https://wa.me/91${selectedBookingForDetail.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
+                      `Hello ${selectedBookingForDetail.customerName}, this is Trim & Twisted Salon regarding your appointment ${selectedBookingForDetail.bookingId} on ${formatDateDDMMYYYY(selectedBookingForDetail.date)} at ${selectedBookingForDetail.slot}.`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1 rounded-lg bg-[#25D366]/20 border border-[#25D366]/40 text-[#25D366] font-semibold text-xs flex items-center gap-1.5"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>WhatsApp Chat</span>
+                  </a>
+                )}
+              </div>
+              {selectedBookingForDetail.customerEmail && (
+                <div className="text-xs text-gray-400 font-mono">
+                  {selectedBookingForDetail.customerEmail}
+                </div>
+              )}
+            </div>
+
+            {/* Schedule & Pool */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-[#070B14] border border-white/10">
+                <span className="text-[10px] uppercase font-mono text-gray-400 block">Date & Time</span>
+                <span className="text-white font-bold block mt-0.5">
+                  {formatDateDDMMYYYY(selectedBookingForDetail.date)}
+                </span>
+                <span className="text-[#FFDF78] font-mono">{selectedBookingForDetail.slot}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-[#070B14] border border-white/10">
+                <span className="text-[10px] uppercase font-mono text-gray-400 block">Pool & Stylist</span>
+                <span className="text-white font-bold block mt-0.5">
+                  {selectedBookingForDetail.poolType === 'haircut' ? 'Haircut Pool' : 'Salon Care'}
+                </span>
+                <span className="text-gray-400">{selectedBookingForDetail.stylistName || 'Any Master Stylist'}</span>
+              </div>
+            </div>
+
+            {/* Services List */}
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-gray-300 uppercase font-mono">Selected Services</span>
+              <div className="p-3 rounded-xl bg-[#070B14] border border-white/10 divide-y divide-white/5 space-y-2">
+                {(selectedBookingForDetail.services || []).map((srv) => (
+                  <div key={srv.id} className="pt-2 first:pt-0 flex items-center justify-between text-xs">
+                    <span className="text-white font-medium">{srv.name}</span>
+                    <span className="font-mono text-[#FFDF78]">
+                      ₹{srv.offerPrice || srv.price || srv.priceLabel}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Payment Summary */}
+            <div className="p-3 rounded-xl bg-[#070B14] border border-white/10 text-xs space-y-1 font-mono">
+              <div className="flex justify-between text-gray-400">
+                <span>Subtotal:</span>
+                <span>₹{selectedBookingForDetail.subtotal || selectedBookingForDetail.totalAmount}</span>
+              </div>
+              {selectedBookingForDetail.discount ? (
+                <div className="flex justify-between text-emerald-400">
+                  <span>Discount ({selectedBookingForDetail.couponCode || 'Coupon'}):</span>
+                  <span>-₹{selectedBookingForDetail.discount}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between text-white font-bold text-sm pt-1 border-t border-white/10">
+                <span>Total Amount Payable:</span>
+                <span className="text-[#FFDF78]">₹{selectedBookingForDetail.totalAmount}</span>
+              </div>
+            </div>
+
+            {selectedBookingForDetail.notes && (
+              <div className="p-3 rounded-xl bg-[#070B14] border border-white/10 text-xs text-gray-300">
+                <span className="text-[10px] uppercase font-mono text-gray-500 block mb-1">Customer Notes</span>
+                &ldquo;{selectedBookingForDetail.notes}&rdquo;
+              </div>
+            )}
+
+            {/* Quick Status Action Controls */}
+            <div className="pt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(selectedBookingForDetail, 'Confirmed')}
+                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase"
+              >
+                Mark Confirmed
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(selectedBookingForDetail, 'Completed')}
+                className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase"
+              >
+                Mark Completed
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(selectedBookingForDetail, 'Cancelled')}
+                className="px-3 py-2 rounded-xl bg-red-600/30 hover:bg-red-600/50 text-red-300 border border-red-500/50 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1871,10 +2668,10 @@ const AdminBookingsManager: React.FC<{
             </div>
             <div>
               <h4 className="font-['Cinzel'] text-xl font-bold text-white">
-                Empty All Slots & Clear Bookings?
+                Reset All Slots & Bookings?
               </h4>
               <p className="text-xs text-gray-300 mt-2 leading-relaxed">
-                This will reset each and every slot in the salon system to 100% free capacity, and clear all pending/previous bookings.
+                This will reset each slot in the salon system to 100% free capacity and clear all pending/previous reservations.
               </p>
             </div>
             <div className="flex gap-3 pt-2">
@@ -1899,191 +2696,51 @@ const AdminBookingsManager: React.FC<{
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="bg-[#070B14] border border-[#D4AF37]/35 rounded-xl px-3 py-1.5 text-xs text-white"
-        >
-          <option value="All">All Statuses</option>
-          <option value="Confirmed">Confirmed</option>
-          <option value="Completed">Completed</option>
-          <option value="Rescheduled">Rescheduled</option>
-          <option value="Cancelled">Cancelled</option>
-          <option value="No-show">No-show</option>
-        </select>
-
-        <input
-          type="date"
-          value={filterDate}
-          onChange={(e) => setFilterDate(e.target.value)}
-          className="bg-[#070B14] border border-[#D4AF37]/35 rounded-xl px-3 py-1.5 text-xs text-white font-mono"
-        />
-
-        {filterDate && (
-          <button
-            onClick={() => setFilterDate('')}
-            className="text-xs text-gray-400 hover:text-white underline"
-          >
-            Clear Date
-          </button>
-        )}
-      </div>
-
-      {/* Bookings Queue */}
-      <div className="space-y-3">
-        {filteredBookings.map((b) => (
-          <div
-            key={b.id}
-            className="p-4 rounded-2xl bg-[#070B14] border border-white/10 hover:border-[#D4AF37]/40 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-          >
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-xs font-bold text-[#FFDF78] bg-[#15223C] px-2 py-0.5 rounded border border-[#D4AF37]/30">
-                  {b.bookingId}
-                </span>
-                <span
-                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
-                    b.status === 'Completed'
-                      ? 'bg-blue-950 text-blue-300'
-                      : b.status === 'Confirmed'
-                      ? 'bg-emerald-950 text-emerald-300'
-                      : b.status === 'Rescheduled'
-                      ? 'bg-amber-950 text-amber-300'
-                      : 'bg-red-950 text-red-300'
-                  }`}
-                >
-                  {b.status}
-                </span>
-                <span className="text-xs text-gray-400 font-mono">
-                  {b.poolType === 'haircut' ? 'Haircut Pool' : 'Salon Care Pool'}
-                </span>
-              </div>
-
-              <h4 className="text-sm font-bold text-white">
-                {b.customerName} &bull; <span className="text-[#FFDF78] font-mono">{b.customerPhone}</span>
-              </h4>
-
-              <p className="text-xs text-gray-400 mt-1">
-                {b.date} &bull; {b.slot} &bull; {(b.services || []).map((s) => s.name).join(', ')}
-              </p>
-
-              <div className="mt-1 font-mono text-xs text-white">
-                Payable: <strong className="text-[#FFDF78]">₹{b.totalAmount}</strong>
-              </div>
-            </div>
-
-            {/* Admin Status Actions */}
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus(b, 'Confirmed')}
-                disabled={updatingId === (b.id || b.bookingId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                  b.status === 'Confirmed'
-                    ? 'bg-emerald-600 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)] font-bold'
-                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-emerald-300 hover:bg-emerald-950/60'
-                }`}
-                title="Mark appointment as Confirmed"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Confirmed</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus(b, 'No-show')}
-                disabled={updatingId === (b.id || b.bookingId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                  b.status === 'No-show'
-                    ? 'bg-amber-600 text-white shadow-[0_0_12px_rgba(217,119,6,0.4)] font-bold'
-                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-amber-300 hover:bg-amber-950/60'
-                }`}
-                title="Mark customer as Not Shown Up (releases capacity)"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>Not Shown Up</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus(b, 'Cancelled')}
-                disabled={updatingId === (b.id || b.bookingId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                  b.status === 'Cancelled'
-                    ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)] font-bold'
-                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-red-300 hover:bg-red-950/60'
-                }`}
-                title="Cancel appointment (releases capacity)"
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Cancel</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus(b, 'Completed')}
-                disabled={updatingId === (b.id || b.bookingId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                  b.status === 'Completed'
-                    ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.4)] font-bold'
-                    : 'bg-[#0E1628] border border-white/10 text-gray-300 hover:text-blue-300 hover:bg-blue-950/60'
-                }`}
-                title="Mark as Completed after service at salon"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Completed</span>
-              </button>
-
-              <a
-                href={`https://wa.me/91${b.customerPhone.replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hello ${b.customerName}, this is Trim & Twisted Salon regarding your appointment ${b.bookingId} on ${formatDateDDMMYYYY(b.date)} at ${b.slot}.`)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="p-2 rounded-lg bg-[#25D366]/20 border border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/30 transition-colors"
-                title="Direct WhatsApp Message"
-              >
-                <MessageCircle className="w-4 h-4" />
-              </a>
-            </div>
-          </div>
-        ))}
-      </div>
-
       {/* Walk-in Booking Modal */}
       {walkinOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="w-full max-w-lg bg-[#0E1628] border-2 border-[#D4AF37] rounded-3xl p-6">
-            <h4 className="font-['Cinzel'] text-xl font-bold text-[#FFDF78] mb-4">
-              Add Walk-in Salon Appointment
-            </h4>
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-lg bg-[#0E1628] border-2 border-[#D4AF37] rounded-3xl p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-['Cinzel'] text-xl font-bold text-[#FFDF78]">
+                Add Walk-in Salon Appointment
+              </h4>
+              <button
+                type="button"
+                onClick={() => setWalkinOpen(false)}
+                className="p-1 rounded text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             <form onSubmit={handleAddWalkin} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-gray-300 mb-1">Customer Full Name *</label>
+                <label className="block text-gray-300 mb-1 font-semibold">Customer Full Name *</label>
                 <input
                   type="text"
                   required
+                  placeholder="e.g. Rahul Sen"
                   value={walkinName}
                   onChange={(e) => setWalkinName(e.target.value)}
-                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
+                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                 />
               </div>
 
               <div>
-                <label className="block text-gray-300 mb-1">Customer Mobile *</label>
+                <label className="block text-gray-300 mb-1 font-semibold">Customer Mobile Number *</label>
                 <input
                   type="tel"
                   required
+                  placeholder="e.g. 9876543210"
                   value={walkinPhone}
                   onChange={(e) => setWalkinPhone(e.target.value)}
-                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
+                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white font-mono focus:outline-none focus:border-[#D4AF37]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 mb-1">Date *</label>
+                  <label className="block text-gray-300 mb-1 font-semibold">Date *</label>
                   <input
                     type="date"
                     required
@@ -2094,7 +2751,7 @@ const AdminBookingsManager: React.FC<{
                 </div>
 
                 <div>
-                  <label className="block text-gray-300 mb-1">Slot *</label>
+                  <label className="block text-gray-300 mb-1 font-semibold">Time Slot *</label>
                   <select
                     value={walkinSlot}
                     onChange={(e) => setWalkinSlot(e.target.value)}
@@ -2109,44 +2766,296 @@ const AdminBookingsManager: React.FC<{
                 </div>
               </div>
 
+              {/* Stylist Selector */}
               <div>
-                <label className="block text-gray-300 mb-1">Select Services *</label>
-                <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-[#070B14] rounded-xl border border-white/10">
-                  {services.map((srv) => (
-                    <label key={srv.id} className="flex items-center gap-2 p-1.5 hover:bg-white/5 rounded cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={walkinServiceIds.includes(srv.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setWalkinServiceIds([...walkinServiceIds, srv.id]);
-                          } else {
-                            setWalkinServiceIds(walkinServiceIds.filter((id) => id !== srv.id));
-                          }
-                        }}
-                      />
-                      <span>{srv.name} (₹{srv.offerPrice || srv.price || srv.priceLabel})</span>
-                    </label>
-                  ))}
+                <label className="block text-gray-300 mb-1 font-semibold">Assigned Stylist (Optional)</label>
+                <select
+                  value={walkinStylistId}
+                  onChange={(e) => setWalkinStylistId(e.target.value)}
+                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
+                >
+                  <option value="">Any Available Master Stylist</option>
+                  {staff
+                    .filter((st) => st.status !== 'Former')
+                    .map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name} ({st.role})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Service Selection */}
+              <div>
+                <label className="block text-gray-300 mb-1 font-semibold">
+                  Select Services * ({walkinServiceIds.length} chosen)
+                </label>
+                <div className="max-h-48 overflow-y-auto space-y-1 p-2 bg-[#070B14] rounded-xl border border-white/10 divide-y divide-white/5 scrollbar-thin">
+                  {services.map((srv) => {
+                    const checked = walkinServiceIds.includes(srv.id);
+                    return (
+                      <label
+                        key={srv.id}
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+                          checked ? 'bg-[#D4AF37]/20 border border-[#D4AF37]/40' : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setWalkinServiceIds([...walkinServiceIds, srv.id]);
+                              } else {
+                                setWalkinServiceIds(walkinServiceIds.filter((id) => id !== srv.id));
+                              }
+                            }}
+                            className="rounded border-gray-600 text-[#D4AF37] focus:ring-0"
+                          />
+                          <span className="font-medium text-white">{srv.name}</span>
+                          {srv.isHaircut && (
+                            <span className="text-[9px] bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded font-mono">
+                              Haircut
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-[#FFDF78] font-bold">
+                          ₹{srv.offerPrice || srv.price || srv.priceLabel}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3">
+              {/* Notes */}
+              <div>
+                <label className="block text-gray-300 mb-1">Appointment Notes / Special Requests</label>
+                <input
+                  type="text"
+                  placeholder="e.g. VIP client, preferred haircut style"
+                  value={walkinNotes}
+                  onChange={(e) => setWalkinNotes(e.target.value)}
+                  className="w-full bg-[#070B14] border border-[#D4AF37]/40 rounded-xl p-2.5 text-white"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 flex gap-3">
                 <button
                   type="button"
                   onClick={() => setWalkinOpen(false)}
-                  className="flex-1 py-2.5 border border-white/10 rounded-xl text-gray-400"
+                  className="flex-1 py-2.5 border border-white/10 rounded-xl text-gray-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-[#D4AF37] text-[#070B14] font-bold rounded-xl uppercase tracking-wider"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold rounded-xl uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow"
                 >
-                  Book Walk-in
+                  Confirm Walk-in
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Supabase CSV Table SQL Modal */}
+      {sqlModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-2xl bg-[#0E1628] border-2 border-[#D4AF37] rounded-3xl p-6 sm:p-7 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div>
+                <h4 className="font-['Cinzel'] text-xl font-bold text-white flex items-center gap-2">
+                  <Code className="w-5 h-5 text-[#FFDF78]" />
+                  <span>Supabase CSV Import Table SQL</span>
+                </h4>
+                <p className="text-xs text-gray-400 mt-1">
+                  Run this in Supabase SQL Editor so your exported CSV spreadsheet imports with 100% matching headers.
+                </p>
+              </div>
+              <button
+                onClick={() => setSqlModalOpen(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Steps */}
+            <div className="p-3.5 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30 text-xs space-y-2">
+              <span className="font-bold text-[#FFDF78] uppercase font-mono block">3-Step Quick Guide:</span>
+              <ol className="list-decimal list-inside space-y-1 text-gray-300 leading-relaxed">
+                <li>Click <strong>Copy SQL Code</strong> below.</li>
+                <li>
+                  Open your{' '}
+                  <a
+                    href="https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#FFDF78] underline font-semibold"
+                  >
+                    Supabase SQL Editor &rarr;
+                  </a>{' '}
+                  and click <strong>RUN</strong>.
+                </li>
+                <li>
+                  Go to <strong>Table Editor &rarr; appointments</strong> (or bookings), click <strong>Insert &rarr; Import data from CSV</strong>, and select your CSV.
+                </li>
+              </ol>
+            </div>
+
+            {/* SQL Script Box */}
+            <div className="relative">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-mono text-gray-400">PostgreSQL DDL with exact CSV column names:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sqlCode = `-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. Table with exact CSV headers matching exported spreadsheet
+CREATE TABLE IF NOT EXISTS public.appointments (
+    "Booking ID" TEXT PRIMARY KEY,
+    "Date" TEXT,
+    "Time Slot" TEXT,
+    "Customer Name" TEXT,
+    "Phone" TEXT,
+    "Email" TEXT,
+    "Services" TEXT,
+    "Stylist" TEXT,
+    "Subtotal" NUMERIC DEFAULT 0,
+    "Discount" NUMERIC DEFAULT 0,
+    "Total Amount" NUMERIC DEFAULT 0,
+    "Status" TEXT DEFAULT 'Confirmed',
+    "Pool" TEXT DEFAULT 'Salon Care',
+    "Created At" TEXT
+);
+
+-- 2. Add columns to public.bookings if importing into bookings table
+CREATE TABLE IF NOT EXISTS public.bookings (id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text);
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Booking ID" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Date" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Time Slot" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Customer Name" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Phone" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Email" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Services" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Stylist" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Status" TEXT DEFAULT 'Confirmed';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Pool" TEXT DEFAULT 'Salon Care';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Created At" TEXT;
+
+-- 3. Enable RLS and grant full permissions for Supabase Table Viewer
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.appointments TO anon, authenticated, service_role;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'appointments' AND policyname = 'Public access appointments') THEN
+        CREATE POLICY "Public access appointments" ON public.appointments FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'Public access bookings') THEN
+        CREATE POLICY "Public access bookings" ON public.bookings FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;`;
+                    navigator.clipboard.writeText(sqlCode);
+                    setCopiedSql(true);
+                    setTimeout(() => setCopiedSql(false), 3000);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-[#D4AF37] text-[#070B14] font-bold text-xs flex items-center gap-1 hover:brightness-110 cursor-pointer"
+                >
+                  {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSql ? 'Copied SQL!' : 'Copy SQL Code'}</span>
+                </button>
+              </div>
+
+              <pre className="p-4 bg-[#05080F] border border-white/10 rounded-2xl text-[11px] font-mono text-emerald-300/90 overflow-x-auto max-h-[300px] leading-relaxed scrollbar-thin">
+{`-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. Table with exact CSV headers matching exported spreadsheet
+CREATE TABLE IF NOT EXISTS public.appointments (
+    "Booking ID" TEXT PRIMARY KEY,
+    "Date" TEXT,
+    "Time Slot" TEXT,
+    "Customer Name" TEXT,
+    "Phone" TEXT,
+    "Email" TEXT,
+    "Services" TEXT,
+    "Stylist" TEXT,
+    "Subtotal" NUMERIC DEFAULT 0,
+    "Discount" NUMERIC DEFAULT 0,
+    "Total Amount" NUMERIC DEFAULT 0,
+    "Status" TEXT DEFAULT 'Confirmed',
+    "Pool" TEXT DEFAULT 'Salon Care',
+    "Created At" TEXT
+);
+
+-- 2. Add columns to public.bookings if importing into bookings table
+CREATE TABLE IF NOT EXISTS public.bookings (id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text);
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Booking ID" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Date" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Time Slot" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Customer Name" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Phone" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Email" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Services" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Stylist" TEXT;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Subtotal" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Discount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Total Amount" NUMERIC DEFAULT 0;
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Status" TEXT DEFAULT 'Confirmed';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Pool" TEXT DEFAULT 'Salon Care';
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS "Created At" TEXT;
+
+-- 3. Enable RLS and grant full permissions for Supabase Table Viewer
+ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.appointments TO anon, authenticated, service_role;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'appointments' AND policyname = 'Public access appointments') THEN
+        CREATE POLICY "Public access appointments" ON public.appointments FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'Public access bookings') THEN
+        CREATE POLICY "Public access bookings" ON public.bookings FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;`}
+              </pre>
+            </div>
+
+            <div className="pt-2 flex justify-between items-center text-xs">
+              <a
+                href="https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#FFDF78] hover:underline flex items-center gap-1 font-semibold"
+              >
+                <span>Open Supabase SQL Editor in New Tab</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+
+              <button
+                type="button"
+                onClick={() => setSqlModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3319,566 +4228,6 @@ const AdminCustomersManager: React.FC<{
               )}
             </tbody>
           </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-/* =========================================================================
-   SUB-COMPONENT 9.5: SUPABASE SQL CONNECTOR & TABLE VIEWER SYNC MANAGER
-   ========================================================================= */
-const AdminSupabaseManager: React.FC<{
-  bookings: BookingItem[];
-  users: UserProfile[];
-  services: ServiceItem[];
-  staff: StaffItem[];
-}> = ({ bookings, users, services, staff }) => {
-  const [supabaseUrl, setSupabaseUrl] = useState(() => {
-    return (
-      (typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_url') : '') ||
-      SUPABASE_CONFIG.url
-    );
-  });
-  const [supabaseKey, setSupabaseKey] = useState(() => {
-    return (
-      (typeof window !== 'undefined' ? localStorage.getItem('tt_supabase_key') : '') ||
-      SUPABASE_CONFIG.apiKey
-    );
-  });
-  const [pingStatus, setPingStatus] = useState<string | null>(null);
-  const [pingSuccess, setPingSuccess] = useState<boolean | null>(null);
-  const [pingLoading, setPingLoading] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
-  const [syncResult, setSyncResult] = useState<{
-    syncedBookings: number;
-    syncedUsers: number;
-    syncedServices: number;
-    syncedStaff: number;
-    errors: string[];
-  } | null>(null);
-  const [copiedSql, setCopiedSql] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sync' | 'sql' | 'config'>('sync');
-
-  // Save custom configuration
-  const handleSaveConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-    localStorage.setItem('tt_supabase_url', supabaseUrl.trim());
-    localStorage.setItem('tt_supabase_key', supabaseKey.trim());
-    setPingStatus('Credentials successfully saved to local browser storage.');
-    setPingSuccess(true);
-  };
-
-  // Test Supabase REST connectivity & table detection
-  const handleTestConnection = async () => {
-    setPingLoading(true);
-    setPingStatus(null);
-    setPingSuccess(null);
-    try {
-      const res = await testSupabaseConnection();
-      if (res.connected) {
-        let msg = `✅ Connected to Supabase Project (${SUPABASE_CONFIG.projectId})!`;
-        if (res.hasBookingsTable && res.hasUsersTable) {
-          msg += ' "bookings" and "users" tables detected and accessible in Table Viewer.';
-        } else if (!res.hasBookingsTable) {
-          msg += ' Note: "bookings" table not yet created. Run the SQL script in SQL Editor once.';
-        }
-        setPingStatus(msg);
-        setPingSuccess(true);
-      } else {
-        setPingStatus(`⚠️ ${res.message} (HTTP ${res.status})`);
-        setPingSuccess(false);
-      }
-    } catch (err: any) {
-      setPingStatus(`❌ Connection error: ${err?.message || 'Check network / project URL'}`);
-      setPingSuccess(false);
-    } finally {
-      setPingLoading(false);
-    }
-  };
-
-  // Push all existing Firestore data into Supabase
-  const handleSyncAllData = async () => {
-    setSyncLoading(true);
-    setSyncResult(null);
-    try {
-      const res = await syncAllToSupabase({ bookings, users, services, staff });
-      setSyncResult({
-        syncedBookings: res.syncedBookings,
-        syncedUsers: res.syncedUsers,
-        syncedServices: res.syncedServices,
-        syncedStaff: res.syncedStaff,
-        errors: res.errors,
-      });
-    } catch (err: any) {
-      setSyncResult({
-        syncedBookings: 0,
-        syncedUsers: 0,
-        syncedServices: 0,
-        syncedStaff: 0,
-        errors: [err?.message || 'Sync failed'],
-      });
-    } finally {
-      setSyncLoading(false);
-    }
-  };
-
-  // Complete SQL schema matching Supabase Table Viewer
-  const generatedSql = useMemo(() => {
-    const escapeSql = (str?: string | null) => {
-      if (str === null || str === undefined) return 'NULL';
-      return `'${String(str).replace(/'/g, "''")}'`;
-    };
-
-    let sql = `-- =========================================================================\n`;
-    sql += `-- TRIM & TWISTED - SUPABASE POSTGRESQL SCHEMA & SEED\n`;
-    sql += `-- Project ID: kvuwagkynvucrwyregxe\n`;
-    sql += `-- Generated on ${new Date().toISOString()}\n`;
-    sql += `-- =========================================================================\n\n`;
-
-    sql += `-- 1. USERS TABLE\n`;
-    sql += `CREATE TABLE IF NOT EXISTS public.users (\n`;
-    sql += `  uid TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT NOT NULL,\n`;
-    sql += `  email TEXT,\n`;
-    sql += `  phone TEXT,\n`;
-    sql += `  photo_url TEXT,\n`;
-    sql += `  loyalty_points INTEGER DEFAULT 100,\n`;
-    sql += `  referral_code TEXT,\n`;
-    sql += `  referred_by TEXT,\n`;
-    sql += `  phone_verified BOOLEAN DEFAULT false,\n`;
-    sql += `  role TEXT DEFAULT 'customer',\n`;
-    sql += `  is_admin BOOLEAN DEFAULT false,\n`;
-    sql += `  notes TEXT,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
-    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 2. BOOKINGS TABLE\n`;
-    sql += `CREATE TABLE IF NOT EXISTS public.bookings (\n`;
-    sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  booking_id TEXT NOT NULL UNIQUE,\n`;
-    sql += `  user_id TEXT REFERENCES public.users(uid) ON DELETE SET NULL,\n`;
-    sql += `  customer_name TEXT NOT NULL,\n`;
-    sql += `  customer_phone TEXT NOT NULL,\n`;
-    sql += `  customer_email TEXT,\n`;
-    sql += `  date DATE NOT NULL,\n`;
-    sql += `  slot TEXT NOT NULL,\n`;
-    sql += `  slot_key TEXT,\n`;
-    sql += `  pool_type TEXT DEFAULT 'haircut',\n`;
-    sql += `  service_ids TEXT[] DEFAULT '{}',\n`;
-    sql += `  services JSONB DEFAULT '[]'::jsonb,\n`;
-    sql += `  stylist_id TEXT,\n`;
-    sql += `  stylist_name TEXT,\n`;
-    sql += `  subtotal NUMERIC(10, 2) DEFAULT 0,\n`;
-    sql += `  discount NUMERIC(10, 2) DEFAULT 0,\n`;
-    sql += `  total_amount NUMERIC(10, 2) NOT NULL,\n`;
-    sql += `  coupon_code TEXT,\n`;
-    sql += `  status TEXT DEFAULT 'Confirmed',\n`;
-    sql += `  notes TEXT,\n`;
-    sql += `  history JSONB DEFAULT '[]'::jsonb,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
-    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 3. SERVICES TABLE\n`;
-    sql += `CREATE TABLE IF NOT EXISTS public.services (\n`;
-    sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT NOT NULL,\n`;
-    sql += `  category TEXT NOT NULL,\n`;
-    sql += `  price NUMERIC(10, 2),\n`;
-    sql += `  price_label TEXT,\n`;
-    sql += `  offer_price NUMERIC(10, 2),\n`;
-    sql += `  note TEXT,\n`;
-    sql += `  image TEXT,\n`;
-    sql += `  is_haircut BOOLEAN DEFAULT false,\n`;
-    sql += `  active BOOLEAN DEFAULT true,\n`;
-    sql += `  sort_order INTEGER DEFAULT 0,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
-    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 4. STAFF TABLE\n`;
-    sql += `CREATE TABLE IF NOT EXISTS public.staff (\n`;
-    sql += `  id TEXT PRIMARY KEY,\n`;
-    sql += `  name TEXT NOT NULL,\n`;
-    sql += `  phone TEXT,\n`;
-    sql += `  role TEXT NOT NULL,\n`;
-    sql += `  salary NUMERIC(10, 2) DEFAULT 0,\n`;
-    sql += `  status TEXT DEFAULT 'Active',\n`;
-    sql += `  photo_url TEXT,\n`;
-    sql += `  date_joined TEXT,\n`;
-    sql += `  total_paid NUMERIC(10, 2) DEFAULT 0,\n`;
-    sql += `  created_at TIMESTAMPTZ DEFAULT NOW(),\n`;
-    sql += `  updated_at TIMESTAMPTZ DEFAULT NOW()\n`;
-    sql += `);\n\n`;
-
-    sql += `-- 5. ROW LEVEL SECURITY (RLS) POLICIES FOR SUPABASE TABLE EDITOR\n`;
-    sql += `ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;\n`;
-    sql += `ALTER TABLE public.bookings ENABLE ROW LEVEL SECURITY;\n`;
-    sql += `ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;\n`;
-    sql += `ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;\n\n`;
-
-    sql += `GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;\n`;
-    sql += `GRANT ALL ON TABLE public.bookings TO anon, authenticated, service_role;\n`;
-    sql += `GRANT ALL ON TABLE public.services TO anon, authenticated, service_role;\n`;
-    sql += `GRANT ALL ON TABLE public.staff TO anon, authenticated, service_role;\n\n`;
-
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read users" ON public.users FOR SELECT USING (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write users" ON public.users FOR ALL USING (true) WITH CHECK (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read bookings" ON public.bookings FOR SELECT USING (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write bookings" ON public.bookings FOR ALL USING (true) WITH CHECK (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read services" ON public.services FOR SELECT USING (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write services" ON public.services FOR ALL USING (true) WITH CHECK (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon read staff" ON public.staff FOR SELECT USING (true);\n`;
-    sql += `CREATE POLICY IF NOT EXISTS "Allow anon write staff" ON public.staff FOR ALL USING (true) WITH CHECK (true);\n\n`;
-
-    sql += `-- 6. DATA INSERTS\n`;
-    if (users.length > 0) {
-      sql += `-- Users (${users.length} records)\n`;
-      users.forEach((u) => {
-        sql += `INSERT INTO public.users (uid, name, email, phone, loyalty_points, referral_code, phone_verified, role, is_admin) VALUES (${escapeSql(u.uid)}, ${escapeSql(u.name)}, ${escapeSql(u.email)}, ${escapeSql(u.phone)}, ${u.loyaltyPoints || 0}, ${escapeSql(u.referralCode)}, ${u.phoneVerified ? 'true' : 'false'}, ${escapeSql(u.role || 'customer')}, ${u.isAdmin ? 'true' : 'false'}) ON CONFLICT (uid) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, loyalty_points = EXCLUDED.loyalty_points;\n`;
-      });
-      sql += `\n`;
-    }
-
-    if (bookings.length > 0) {
-      sql += `-- Bookings (${bookings.length} records)\n`;
-      bookings.forEach((b) => {
-        sql += `INSERT INTO public.bookings (id, booking_id, user_id, customer_name, customer_phone, customer_email, date, slot, pool_type, status, subtotal, discount, total_amount, coupon_code, notes) VALUES (${escapeSql(b.id || b.bookingId)}, ${escapeSql(b.bookingId)}, ${escapeSql(b.userId)}, ${escapeSql(b.customerName)}, ${escapeSql(b.customerPhone)}, ${escapeSql(b.customerEmail)}, ${escapeSql(b.date)}, ${escapeSql(b.slot)}, ${escapeSql(b.poolType)}, ${escapeSql(b.status)}, ${b.subtotal || 0}, ${b.discount || 0}, ${b.totalAmount || 0}, ${escapeSql(b.couponCode)}, ${escapeSql(b.notes)}) ON CONFLICT (booking_id) DO UPDATE SET status = EXCLUDED.status, total_amount = EXCLUDED.total_amount;\n`;
-      });
-      sql += `\n`;
-    }
-
-    return sql;
-  }, [services, staff, users, bookings]);
-
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(generatedSql);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 2500);
-  };
-
-  const handleDownloadSql = () => {
-    const blob = new Blob([generatedSql], { type: 'application/sql' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `supabase_schema_${SUPABASE_CONFIG.projectId}.sql`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header with Project Status */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="font-['Cinzel'] text-xl font-bold text-white flex items-center gap-2">
-              <Database className="w-5 h-5 text-[#D4AF37]" />
-              <span>Supabase SQL & Table Viewer Integration</span>
-            </h3>
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
-              Project: {SUPABASE_CONFIG.projectId}
-            </span>
-          </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Real-time appointment bookings and customer profiles synchronized directly into Supabase Table Viewer.
-          </p>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={SUPABASE_CONFIG.tableViewerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-          >
-            <span>Open Table Editor</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </a>
-          <button
-            type="button"
-            onClick={handleCopySql}
-            className="px-3.5 py-2 rounded-xl bg-[#D4AF37] hover:bg-[#FFE082] text-[#070B14] font-bold text-xs flex items-center gap-1.5 transition-all shadow"
-          >
-            {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedSql ? 'Copied SQL!' : 'Copy SQL Script'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleDownloadSql}
-            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition-all border border-white/20"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download .sql</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Real-time Status Card */}
-      <div className="p-4 rounded-2xl bg-[#070B14] border border-[#D4AF37]/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-              Live Auto-Sync Active
-            </span>
-          </div>
-          <p className="text-xs text-gray-300">
-            Every appointment booked by patrons is automatically pushed to the <code className="text-[#FFDF78]">public.bookings</code> table in Supabase.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={syncLoading}
-            onClick={handleSyncAllData}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncLoading ? 'animate-spin' : ''}`} />
-            <span>{syncLoading ? 'Syncing Tables...' : '⚡ Push All Data to Supabase Now'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={pingLoading}
-            onClick={handleTestConnection}
-            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-gray-200 text-xs font-semibold border border-white/20 transition-all flex items-center gap-1.5"
-          >
-            {pingLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-[#FFDF78]" />}
-            <span>Test Connection</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Sync / Test Results Notification */}
-      {pingStatus && (
-        <div className={`p-3.5 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in ${
-          pingSuccess
-            ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
-            : 'bg-amber-950/80 border-amber-500/50 text-amber-200'
-        }`}>
-          {pingSuccess ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
-          <span>{pingStatus}</span>
-        </div>
-      )}
-
-      {syncResult && (
-        <div className={`p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in ${
-          syncResult.errors.length === 0
-            ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
-            : 'bg-amber-950/80 border-amber-500/50 text-amber-200'
-        }`}>
-          <div className="flex items-center gap-2 font-bold">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>
-              Sync Complete: {syncResult.syncedBookings} bookings, {syncResult.syncedUsers} users, {syncResult.syncedServices} services, {syncResult.syncedStaff} stylists pushed to Supabase!
-            </span>
-          </div>
-          {syncResult.errors.length > 0 && (
-            <div className="text-[11px] text-amber-300 font-mono pl-6">
-              Warnings/Errors: {syncResult.errors.join(' | ')}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Database Statistics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">public.bookings</div>
-          <div className="text-xl font-bold font-mono text-[#FFDF78]">{bookings.length}</div>
-          <div className="text-[11px] text-gray-500">Live appointments</div>
-        </div>
-        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">public.users</div>
-          <div className="text-xl font-bold font-mono text-white">{users.length}</div>
-          <div className="text-[11px] text-gray-500">Registered patrons</div>
-        </div>
-        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">public.services</div>
-          <div className="text-xl font-bold font-mono text-emerald-400">{services.length}</div>
-          <div className="text-[11px] text-gray-500">Active salon menu</div>
-        </div>
-        <div className="p-4 rounded-2xl bg-[#070B14] border border-white/10 space-y-1">
-          <div className="text-[10px] uppercase font-mono text-gray-400">public.staff</div>
-          <div className="text-xl font-bold font-mono text-amber-400">{staff.length}</div>
-          <div className="text-[11px] text-gray-500">Stylists & team</div>
-        </div>
-      </div>
-
-      {/* Sub Tabs */}
-      <div className="flex border-b border-white/10 gap-4 text-xs font-semibold">
-        <button
-          type="button"
-          onClick={() => setActiveTab('sync')}
-          className={`pb-2 transition-colors flex items-center gap-1.5 ${
-            activeTab === 'sync'
-              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Table className="w-4 h-4" />
-          <span>Live Data Table Inspector</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('sql')}
-          className={`pb-2 transition-colors flex items-center gap-1.5 ${
-            activeTab === 'sql'
-              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Code className="w-4 h-4" />
-          <span>Supabase SQL Script</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('config')}
-          className={`pb-2 transition-colors flex items-center gap-1.5 ${
-            activeTab === 'config'
-              ? 'text-[#FFDF78] border-b-2 border-[#D4AF37]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          <span>Connection Credentials</span>
-        </button>
-      </div>
-
-      {/* Tab 1: Live Data Table Inspector */}
-      {activeTab === 'sync' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-400">
-              Showing preview of rows formatted exactly as structured in Supabase:
-            </span>
-            <a
-              href="https://supabase.com/dashboard/project/kvuwagkynvucrwyregxe/sql/new"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[#FFDF78] hover:underline font-mono"
-            >
-              Run SQL in Supabase Dashboard &rarr;
-            </a>
-          </div>
-
-          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#070B14]">
-            <table className="w-full text-left text-xs text-gray-300">
-              <thead className="bg-[#0E1628] text-gray-400 uppercase text-[10px] font-mono border-b border-white/10">
-                <tr>
-                  <th className="py-2.5 px-3">booking_id</th>
-                  <th className="py-2.5 px-3">customer_name</th>
-                  <th className="py-2.5 px-3">customer_phone</th>
-                  <th className="py-2.5 px-3">date</th>
-                  <th className="py-2.5 px-3">slot</th>
-                  <th className="py-2.5 px-3">total_amount</th>
-                  <th className="py-2.5 px-3">status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                {bookings.slice(0, 10).map((b) => (
-                  <tr key={b.bookingId} className="hover:bg-white/5">
-                    <td className="py-2.5 px-3 font-bold text-[#FFDF78]">{b.bookingId}</td>
-                    <td className="py-2.5 px-3 font-sans text-white">{b.customerName}</td>
-                    <td className="py-2.5 px-3">{b.customerPhone}</td>
-                    <td className="py-2.5 px-3">{b.date}</td>
-                    <td className="py-2.5 px-3">{b.slot}</td>
-                    <td className="py-2.5 px-3 font-bold text-emerald-400">₹{b.totalAmount}</td>
-                    <td className="py-2.5 px-3">
-                      <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold ${
-                        b.status === 'Completed'
-                          ? 'bg-blue-950 text-blue-300'
-                          : b.status === 'Confirmed'
-                          ? 'bg-emerald-950 text-emerald-300'
-                          : 'bg-red-950 text-red-300'
-                      }`}>
-                        {b.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: SQL Script */}
-      {activeTab === 'sql' && (
-        <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-gray-400 font-mono gap-2">
-            <span>One-click execution script for Supabase SQL Editor:</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCopySql}
-                className="text-[#FFDF78] hover:underline flex items-center gap-1"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>{copiedSql ? 'Copied to Clipboard!' : 'Copy Entire SQL'}</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="relative rounded-2xl bg-[#05080F] border border-white/10 p-4 font-mono text-xs overflow-x-auto max-h-[460px] text-gray-300 scrollbar-thin">
-            <pre className="whitespace-pre">{generatedSql}</pre>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Configuration */}
-      {activeTab === 'config' && (
-        <div className="p-6 rounded-2xl bg-[#070B14] border border-white/10 max-w-2xl space-y-4">
-          <h4 className="font-['Cinzel'] text-lg font-bold text-white">Supabase Connection Credentials</h4>
-          <p className="text-xs text-gray-400 leading-relaxed">
-            Pre-configured with Project <code className="text-[#FFDF78]">kvuwagkynvucrwyregxe</code>. You can customize the URL or public API key below.
-          </p>
-
-          <form onSubmit={handleSaveConfig} className="space-y-4 text-xs">
-            <div>
-              <label className="block text-gray-300 mb-1 font-mono">SUPABASE PROJECT URL</label>
-              <input
-                type="url"
-                required
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-                className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-gray-300 mb-1 font-mono">SUPABASE ANON PUBLIC API KEY</label>
-              <input
-                type="text"
-                required
-                value={supabaseKey}
-                onChange={(e) => setSupabaseKey(e.target.value)}
-                className="w-full bg-[#0E1628] border border-white/20 rounded-xl p-2.5 text-white font-mono"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-[#D4AF37] text-[#070B14] font-bold text-xs uppercase rounded-xl tracking-wider hover:brightness-110 transition-all"
-              >
-                Save Credentials
-              </button>
-              <button
-                type="button"
-                disabled={pingLoading}
-                onClick={handleTestConnection}
-                className="px-5 py-2.5 bg-white/10 hover:bg-white/15 text-white font-medium text-xs rounded-xl border border-white/20 transition-all"
-              >
-                {pingLoading ? 'Testing API...' : 'Test Connection'}
-              </button>
-            </div>
-          </form>
         </div>
       )}
     </div>
