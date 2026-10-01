@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { APP_CONFIG } from '../config';
 import type {
+  UserProfile,
   ServiceItem,
   CategoryItem,
   BookingItem,
@@ -22,7 +23,8 @@ import {
   updateDoc,
   addDoc,
   deleteDoc,
-  runTransaction
+  runTransaction,
+  onSnapshot
 } from 'firebase/firestore';
 import { sha256, generateSalt } from '../utils/crypto';
 import { useAuth } from '../context/AuthContext';
@@ -36,6 +38,9 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Code,
+  Copy,
+  Database,
   DollarSign,
   Download,
   Edit2,
@@ -52,11 +57,14 @@ import {
   MessageCircle,
   MessageSquare,
   Plus,
+  RefreshCw,
   RotateCcw,
   Scissors,
+  Search,
   Settings,
   Sparkles,
   Star,
+  Table,
   Tag,
   Trash2,
   TrendingUp,
@@ -110,11 +118,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
 
   // Active Admin Tab
   const [adminTab, setAdminTab] = useState<
-    'dashboard' | 'sales' | 'services' | 'bookings' | 'staff' | 'gallery' | 'coupons' | 'reviews' | 'customers' | 'settings'
+    'dashboard' | 'bookings' | 'customers' | 'supabase' | 'sales' | 'services' | 'staff' | 'gallery' | 'coupons' | 'reviews' | 'settings'
   >('dashboard');
 
   // Salon Data Collections
   const [bookings, setBookings] = useState<BookingItem[]>([]);
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [staff, setStaff] = useState<StaffItem[]>([]);
@@ -135,55 +144,61 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
       const bSnap = await getDocs(collection(db, 'bookings'));
       const bList: BookingItem[] = [];
       bSnap.forEach((d) => bList.push({ ...(d.data() as any), id: d.id }));
-      bList.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+      bList.sort((a, b) => ((b.createdAt || '') > (a.createdAt || '') ? 1 : -1));
       setBookings(bList);
 
-      // 2. Services
+      // 2. Users / Patrons
+      const uSnap = await getDocs(collection(db, 'users'));
+      const uList: UserProfile[] = [];
+      uSnap.forEach((d) => uList.push({ uid: d.id, ...(d.data() as any) }));
+      setUsersList(uList);
+
+      // 3. Services
       const sSnap = await getDocs(collection(db, 'services'));
       const sList: ServiceItem[] = [];
       sSnap.forEach((d) => sList.push({ ...(d.data() as any), id: d.id }));
       sList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setServices(sList);
 
-      // 3. Categories
+      // 4. Categories
       const cSnap = await getDocs(collection(db, 'categories'));
       const cList: CategoryItem[] = [];
       cSnap.forEach((d) => cList.push({ ...(d.data() as any), id: d.id }));
       cList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setCategories(cList);
 
-      // 4. Staff
+      // 5. Staff
       const stSnap = await getDocs(collection(db, 'staff'));
       const stList: StaffItem[] = [];
       stSnap.forEach((d) => stList.push({ ...(d.data() as any), id: d.id }));
       setStaff(stList);
 
-      // 5. Salary Payments
+      // 6. Salary Payments
       const salSnap = await getDocs(collection(db, 'salaryPayments'));
       const salList: SalaryPaymentItem[] = [];
       salSnap.forEach((d) => salList.push({ ...(d.data() as any), id: d.id }));
       setSalaryPayments(salList);
 
-      // 6. Coupons
+      // 7. Coupons
       const cpSnap = await getDocs(collection(db, 'coupons'));
       const cpList: CouponItem[] = [];
       cpSnap.forEach((d) => cpList.push({ ...(d.data() as any), id: d.id }));
       setCoupons(cpList);
 
-      // 7. Gallery
+      // 8. Gallery
       const gSnap = await getDocs(collection(db, 'gallery'));
       const gList: GalleryItem[] = [];
       gSnap.forEach((d) => gList.push({ ...(d.data() as any), id: d.id }));
       gList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
       setGallery(gList);
 
-      // 8. Reviews
+      // 9. Reviews
       const rSnap = await getDocs(collection(db, 'reviews'));
       const rList: ReviewItem[] = [];
       rSnap.forEach((d) => rList.push({ ...(d.data() as any), id: d.id }));
       setReviews(rList);
 
-      // 9. Settings
+      // 10. Settings
       const setDocSnap = await getDoc(doc(db, 'settings', 'general'));
       if (setDocSnap.exists()) {
         setSettings(setDocSnap.data() as SalonSettings);
@@ -198,6 +213,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
   useEffect(() => {
     if (isOpen && isAuthenticated) {
       fetchAllData();
+
+      // Real-time live listener for bookings and users
+      const unsubBookings = onSnapshot(
+        collection(db, 'bookings'),
+        (snap) => {
+          const bList: BookingItem[] = [];
+          snap.forEach((d) => bList.push({ ...(d.data() as any), id: d.id }));
+          bList.sort((a, b) => ((b.createdAt || '') > (a.createdAt || '') ? 1 : -1));
+          setBookings(bList);
+        },
+        (err) => console.warn('Bookings live listener note:', err)
+      );
+
+      const unsubUsers = onSnapshot(
+        collection(db, 'users'),
+        (snap) => {
+          const uList: UserProfile[] = [];
+          snap.forEach((d) => uList.push({ uid: d.id, ...(d.data() as any) }));
+          setUsersList(uList);
+        },
+        (err) => console.warn('Users live listener note:', err)
+      );
+
+      return () => {
+        unsubBookings();
+        unsubUsers();
+      };
     }
   }, [isOpen, isAuthenticated]);
 
@@ -603,14 +645,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
             <aside className="w-full md:w-64 bg-[#070B14] border-b md:border-b-0 md:border-r border-[#D4AF37]/20 flex flex-row md:flex-col p-2 sm:p-3 gap-1 overflow-x-auto md:overflow-y-auto shrink-0 scrollbar-none">
               {[
                 { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                { id: 'bookings', label: 'Bookings CRM & Table Editor', icon: Calendar },
+                { id: 'customers', label: 'Users Table Editor', icon: UserCheck },
+                { id: 'supabase', label: 'Supabase SQL Connector', icon: Database },
                 { id: 'sales', label: 'Sales Reports', icon: BarChart3 },
                 { id: 'services', label: 'Services Menu', icon: Scissors },
-                { id: 'bookings', label: 'Bookings CRM', icon: Calendar },
                 { id: 'staff', label: 'Staff & Salaries', icon: Users },
                 { id: 'gallery', label: 'Media Gallery', icon: ImageIcon },
                 { id: 'coupons', label: 'Coupons Engine', icon: Tag },
                 { id: 'reviews', label: 'Reviews Moderation', icon: MessageSquare },
-                { id: 'customers', label: 'Customer Directory', icon: UserCheck },
                 { id: 'settings', label: 'Salon Settings', icon: Settings },
               ].map((tab) => {
                 const Icon = tab.icon;
@@ -666,6 +709,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
                 />
               )}
 
+              {adminTab === 'customers' && (
+                <AdminCustomersManager
+                  bookings={bookings}
+                  users={usersList}
+                />
+              )}
+
+              {adminTab === 'supabase' && (
+                <AdminSupabaseManager
+                  bookings={bookings}
+                  users={usersList}
+                  services={services}
+                  staff={staff}
+                />
+              )}
+
               {adminTab === 'staff' && (
                 <AdminStaffManager
                   staff={staff}
@@ -693,10 +752,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onRefre
                   reviews={reviews}
                   onRefresh={() => { fetchAllData(); onRefreshData(); }}
                 />
-              )}
-
-              {adminTab === 'customers' && (
-                <AdminCustomersManager bookings={bookings} />
               )}
 
               {adminTab === 'settings' && (
