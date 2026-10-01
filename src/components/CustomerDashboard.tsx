@@ -47,7 +47,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onRefreshBookings,
 }) => {
   const { profile, updateProfileDetails, signOut } = useAuth();
-  const [activeTab, setActiveTab] = useState<'bookings' | 'profile'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'profile' | 'loyalty'>('bookings');
 
   // Bookings state
   const [userBookings, setUserBookings] = useState<BookingItem[]>([]);
@@ -59,6 +59,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [editEmail, setEditEmail] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [profileSavedMsg, setProfileSavedMsg] = useState<string | null>(null);
+  const [profileErrorMsg, setProfileErrorMsg] = useState<string | null>(null);
+  const [copiedReferral, setCopiedReferral] = useState(false);
 
   // Re-verification state when phone or email changes
   const [verifyModalTarget, setVerifyModalTarget] = useState<{ target: string; type: 'phone' | 'email' } | null>(null);
@@ -146,7 +148,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       setProfileSavedMsg('Profile avatar updated successfully!');
       setTimeout(() => setProfileSavedMsg(null), 3000);
     } catch (err: any) {
-      alert('Avatar upload error: ' + err?.message);
+      setProfileErrorMsg('Avatar upload error: ' + (err?.message || 'Failed to upload'));
+      setTimeout(() => setProfileErrorMsg(null), 4000);
     } finally {
       setUploadingAvatar(false);
     }
@@ -635,6 +638,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 <span>{profileSavedMsg}</span>
               </div>
             )}
+            {profileErrorMsg && (
+              <div className="mb-4 p-3 bg-red-950/70 border border-red-500/50 rounded-xl text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                <span>{profileErrorMsg}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
@@ -714,11 +723,23 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(profile.referralCode || 'TT-ROYAL');
-                    alert('Referral code copied to clipboard!');
+                    setCopiedReferral(true);
+                    setTimeout(() => setCopiedReferral(false), 2500);
                   }}
-                  className="p-2.5 rounded-xl bg-[#D4AF37]/20 text-[#FFDF78] border border-[#D4AF37]/40"
+                  className="p-2.5 rounded-xl bg-[#D4AF37]/20 text-[#FFDF78] border border-[#D4AF37]/40 flex items-center gap-1.5 hover:bg-[#D4AF37]/30 transition-all text-xs font-semibold"
+                  title="Copy referral code"
                 >
-                  <Share2 className="w-4 h-4" />
+                  {copiedReferral ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span className="text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-4 h-4" />
+                      <span>Copy</span>
+                    </>
+                  )}
                 </button>
               </div>
               <p className="text-xs text-gray-300 mt-3 leading-relaxed">
