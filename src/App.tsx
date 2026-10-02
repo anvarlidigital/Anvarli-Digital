@@ -26,7 +26,6 @@ import { ThreeSalonScene } from './components/ThreeSalonScene';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { OfferBanner } from './components/OfferBanner';
-import { ServicesSection } from './components/ServicesSection';
 import { BeforeAfterSlider } from './components/BeforeAfterSlider';
 import { GallerySection } from './components/GallerySection';
 import { ReviewsWall } from './components/ReviewsWall';
@@ -42,6 +41,7 @@ import { PhonePromptModal } from './components/PhonePromptModal';
 import { AdminPanel } from './components/AdminPanel';
 import { OtpDevToast } from './components/OtpDevToast';
 import { MenuFlyerModal } from './components/MenuFlyerModal';
+import { Services3DWallSection } from './components/Services3DWallSection';
 
 function MainApp() {
   const { profile } = useAuth();
@@ -272,7 +272,7 @@ function MainApp() {
           onToggleLiteMode={() => setLiteMode(!liteMode)}
         />
 
-        {/* Hero Section with Interactive 3D Royal Salon Suite */}
+        {/* 1. Hero Section with Interactive 3D Royal Salon Suite (Kept Intact at the Top) */}
         <Hero
           onOpenBooking={() => setBookingModalOpen(true)}
           onExploreServices={() => {
@@ -280,35 +280,36 @@ function MainApp() {
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
           liteMode={liteMode}
-          onSelectStation={(stationName) => {
-            // If user clicked a station in 3D, optionally preselect matching service or open booking
+          onSelectStation={() => {
             setBookingModalOpen(true);
           }}
         />
 
-        {/* Seasonal Offer Banner */}
+        {/* 2. Seasonal Offer Banner (Kept Intact) */}
         <OfferBanner
           settings={settings}
           onOpenBooking={() => setBookingModalOpen(true)}
           onViewFlyer={() => setFlyerModalOpen(true)}
         />
 
-        {/* Services & Prices Section (Grouped under Category Headings) */}
-        <ServicesSection
+        {/* 3. Services 3D Throne Wall Experience & Full Catalog
+            Features the 3D Royal Stylist Throne in background & 3D scrolling walls for services */}
+        <Services3DWallSection
           categories={categories}
           services={services}
           selectedServiceIds={selectedServiceIds}
           onToggleService={handleToggleService}
           onOpenBooking={() => setBookingModalOpen(true)}
+          liteMode={liteMode}
         />
 
-        {/* Interactive Before & After Transformation Drag Slider */}
+        {/* 4. Interactive Before & After Transformation Drag Slider (Kept Intact) */}
         <BeforeAfterSlider />
 
-        {/* 3D Visual Gallery Carousel (Photos & Videos) */}
+        {/* 5. 3D Visual Gallery Carousel (Photos & Videos - Kept Intact) */}
         <GallerySection galleryItems={galleryItems} />
 
-        {/* Reviews Wall (4-metric breakdown & Google Review redirect) */}
+        {/* 6. Reviews Wall (4-metric breakdown & Google Review redirect - Kept Intact) */}
         <ReviewsWall
           reviews={reviews}
           userBookings={userBookings}
@@ -317,19 +318,19 @@ function MainApp() {
           onOpenAuth={() => handleOpenAuth('signin')}
         />
 
-        {/* Meet the Master Stylists */}
+        {/* 6. Meet the Master Stylists (Kept Intact) */}
         <TeamSection
           staffList={staffList}
           onOpenBooking={() => setBookingModalOpen(true)}
         />
 
-        {/* Curated Combos & Digital VIP Gift Cards Pass */}
+        {/* 7. Curated Combos & Digital VIP Gift Cards Pass (Kept Intact) */}
         <PackagesGiftCards onOpenBooking={() => setBookingModalOpen(true)} />
 
-        {/* Salon Location, Google Maps & FAQ Section */}
+        {/* 8. Salon Location, Google Maps & FAQ Section (Kept Intact) */}
         <LocationFaqSection />
 
-        {/* Footer with Legal Policies & Direct Contact */}
+        {/* 9. Footer with Legal Policies & Direct Contact (Kept Intact) */}
         <Footer onNavigateAdmin={() => setAdminPanelOpen(true)} />
 
         {/* Floating WhatsApp Quick Action Button */}

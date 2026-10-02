@@ -6,6 +6,7 @@ import {
   Compass,
   Facebook,
   Instagram,
+  Layers,
   Lock,
   Menu,
   Phone,

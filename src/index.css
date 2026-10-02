@@ -33,6 +33,50 @@
   .font-playfair {
     font-family: 'Playfair Display', serif;
   }
+
+  .font-bodoni {
+    font-family: 'Bodoni Moda', Georgia, serif;
+  }
+
+  .font-jost {
+    font-family: 'Jost', system-ui, sans-serif;
+  }
+}
+
+/* 3D Salon Walls Scroll Format Engine */
+.salon-walls-stage {
+  perspective-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+
+.salon-walls-rig, .salon-walls-world {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.salon-walls-rail {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  background: linear-gradient(to bottom, rgba(255, 223, 120, 0.4), rgba(212, 175, 55, 0.15) 80%, transparent);
+  transform-origin: 50% 0;
+  pointer-events: none;
+}
+
+.salon-walls-panel {
+  position: absolute;
+  transform-style: preserve-3d;
+  will-change: transform;
+  border-radius: 1.25rem;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.4), 0 25px 70px rgba(0, 0, 0, 0.85);
+  transition: box-shadow 0.3s ease;
+}
+
+.salon-walls-panel:hover {
+  box-shadow: 0 0 0 1.5px rgba(255, 223, 120, 0.75), 0 35px 90px rgba(0, 0, 0, 0.95);
 }
 
 /* Custom Luxury Gold Scrollbar */
