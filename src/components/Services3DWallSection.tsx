@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Compass,
   Crown,
   Flame,
   Grid,
@@ -26,6 +27,7 @@ interface Services3DWallSectionProps {
   selectedServiceIds: string[];
   onToggleService: (service: ServiceItem) => void;
   onOpenBooking: () => void;
+  onOpenRitualMatcher?: () => void;
   liteMode?: boolean;
 }
 
@@ -35,6 +37,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
   selectedServiceIds,
   onToggleService,
   onOpenBooking,
+  onOpenRitualMatcher = () => {},
   liteMode = false,
 }) => {
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all');
@@ -88,11 +91,16 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
   const N = serviceWalls.length;
 
   // 3D Stage Refs & Animation math
+  const containerSectionRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const rigRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const panelElsRef = useRef<(HTMLDivElement | null)[]>([]);
   const railsRef = useRef<(HTMLElement | null)[]>([]);
+
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartTargetRef = useRef(0);
 
   const animRef = useRef({
     target: 0,
@@ -228,7 +236,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
     };
   }, [N]);
 
-  // Stage Listeners
+  // Stage Listeners & Touch/Drag to Orbit
   useEffect(() => {
     layout();
     const handleResize = () => layout();
@@ -240,6 +248,24 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
       const rect = stageEl.getBoundingClientRect();
       animRef.current.mx = (e.clientX - rect.left) / rect.width - 0.5;
       animRef.current.my = (e.clientY - rect.top) / rect.height - 0.5;
+
+      if (isDraggingRef.current && N > 1) {
+        const deltaX = e.clientX - dragStartXRef.current;
+        const normalizedDelta = -deltaX / (rect.width * 0.85);
+        const newTarget = Math.max(0, Math.min(1, dragStartTargetRef.current + normalizedDelta));
+        animRef.current.target = newTarget;
+        setCurrentWallIndex(Math.round(newTarget * (N - 1)));
+      }
+    };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      isDraggingRef.current = true;
+      dragStartXRef.current = e.clientX;
+      dragStartTargetRef.current = animRef.current.target;
+    };
+
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
     };
 
     // Wheel event inside 3D stage moves through 3D service walls
@@ -254,15 +280,53 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
     };
 
     stageEl.addEventListener('pointermove', handlePointerMove, { passive: true });
+    stageEl.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointerup', handlePointerUp);
     stageEl.addEventListener('wheel', handleWheel, { passive: true });
     window.addEventListener('resize', handleResize);
 
     return () => {
       stageEl.removeEventListener('pointermove', handlePointerMove);
+      stageEl.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
       stageEl.removeEventListener('wheel', handleWheel);
       window.removeEventListener('resize', handleResize);
     };
-  }, [layout, currentWallIndex, goToWallIndex]);
+  }, [layout, currentWallIndex, goToWallIndex, N]);
+
+  // Window Scroll Parallax Integration:
+  // When user is scrolling down the page, adjust target smoothly
+  useEffect(() => {
+    let ticking = false;
+    const handleWindowScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          if (!containerSectionRef.current || N <= 1) {
+            ticking = false;
+            return;
+          }
+          const rect = containerSectionRef.current.getBoundingClientRect();
+          const vh = window.innerHeight;
+          // Calculate visibility ratio
+          if (rect.top < vh && rect.bottom > 0) {
+            const progress = (vh - rect.top) / (vh + rect.height * 0.8);
+            const clamped = Math.max(0, Math.min(1, progress));
+            // Only update if user isn't actively dragging
+            if (!isDraggingRef.current) {
+              const targetIdx = Math.round(clamped * (N - 1));
+              setCurrentWallIndex(targetIdx);
+              animRef.current.target = clamped;
+            }
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleWindowScroll);
+  }, [N]);
 
   // Group services by category heading for the Full Catalog section
   const groupedServices = useMemo(() => {
@@ -296,8 +360,12 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
   }, [services, activeCategories, searchQuery, activeCategoryFilter]);
 
   return (
-    <section id="services" className="relative z-10 py-12 sm:py-16 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
-      {/* 1. SECTION HEADLINE */}
+    <section
+      id="services"
+      ref={containerSectionRef}
+      className="relative z-10 py-12 sm:py-16 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full"
+    >
+      {/* 1. SECTION HEADLINE & CONSULTATION CTA */}
       <div className="text-center max-w-3xl mx-auto mb-8 sm:mb-12">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#FFDF78] text-xs font-semibold uppercase tracking-widest mb-3 backdrop-blur-md">
           <Crown className="w-3.5 h-3.5 text-[#FFDF78]" />
@@ -309,6 +377,17 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
         <p className="font-['Playfair_Display'] italic text-base sm:text-xl text-[#E6DFCA] mt-2">
           3D Throne Wall Showcase &bull; Zero advance payment required
         </p>
+
+        {/* Diagnostic Quiz Button */}
+        <div className="mt-4 flex items-center justify-center">
+          <button
+            onClick={onOpenRitualMatcher}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-[#D4AF37]/20 via-[#FFF0A5]/25 to-[#AA7C11]/20 border border-[#D4AF37]/60 text-[#FFDF78] hover:text-white font-semibold text-xs tracking-wider uppercase transition-all shadow-[0_0_20px_rgba(212,175,55,0.2)] hover:scale-105 active:scale-95"
+          >
+            <Sparkles className="w-4 h-4 text-[#FFDF78]" />
+            <span>Discover Your Bespoke Ritual &bull; 60-Sec Diagnostic</span>
+          </button>
+        </div>
       </div>
 
       {/* =========================================================================
@@ -318,7 +397,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
         {/* 3D Viewport Stage */}
         <div
           ref={stageRef}
-          className="relative w-full h-[480px] xs:h-[530px] sm:h-[600px] md:h-[650px] overflow-hidden select-none salon-walls-stage"
+          className="relative w-full h-[480px] xs:h-[530px] sm:h-[600px] md:h-[650px] overflow-hidden select-none salon-walls-stage cursor-grab active:cursor-grabbing"
         >
           {/* 3D Royal Throne Room Background */}
           <Throne3DBackground
@@ -345,7 +424,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                 const isSelected = selectedServiceIds.includes(srv.id);
                 const displayImage =
                   srv.image ||
-                  'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80';
+                  'https://images.unsplash.com/photo-1522337660859-02fbefca4702?auto=format&fit=crop&w=800&q=80';
 
                 return (
                   <div
@@ -471,7 +550,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                     3D Service Walls
                   </span>
                   <span className="text-[10px] text-[#C9A37A] block font-mono">
-                    Throne Chamber View
+                    Throne Chamber View &bull; Scroll / Drag to Orbit
                   </span>
                 </div>
               </div>
@@ -483,7 +562,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('all'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'all'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -494,7 +573,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('gents'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'gents'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -505,7 +584,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('hair'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'hair'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -516,7 +595,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('treatments'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'treatments'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -527,7 +606,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('facial'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'facial'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -538,7 +617,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => { setActive3DCat('combos'); goToWallIndex(0); }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                     active3DCat === 'combos'
-                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md'
+                      ? 'bg-[#D4AF37] text-[#070B14] shadow-md font-bold'
                       : 'bg-[#0E1628]/85 text-gray-300 hover:text-white border border-white/10'
                   }`}
                 >
@@ -560,6 +639,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => goToWallIndex(currentWallIndex - 1)}
                   disabled={currentWallIndex === 0}
                   className="w-8 h-8 rounded-xl bg-[#0E1628]/90 hover:bg-[#D4AF37] text-gray-300 hover:text-[#070B14] border border-white/10 disabled:opacity-30 flex items-center justify-center cursor-pointer transition-all"
+                  aria-label="Previous wall"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -568,6 +648,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   onClick={() => goToWallIndex(currentWallIndex + 1)}
                   disabled={currentWallIndex === N - 1}
                   className="w-8 h-8 rounded-xl bg-[#0E1628]/90 hover:bg-[#D4AF37] text-gray-300 hover:text-[#070B14] border border-white/10 disabled:opacity-30 flex items-center justify-center cursor-pointer transition-all"
+                  aria-label="Next wall"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -579,6 +660,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                   <button
                     key={dotIdx}
                     onClick={() => goToWallIndex(dotIdx)}
+                    aria-label={`Jump to 3D service wall ${dotIdx + 1}`}
                     className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
                       dotIdx === currentWallIndex
                         ? 'w-6 bg-[#D4AF37] shadow-[0_0_10px_rgba(212,175,55,0.7)]'
@@ -590,7 +672,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
 
               {/* Scroll / Swipe Hint */}
               <span className="text-[11px] text-[#C9A37A] font-mono hidden sm:inline">
-                Scroll Wheel or Tap Dots to Traverse
+                Drag or Scroll Page to Traverse
               </span>
             </div>
           </div>
@@ -598,7 +680,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
       </div>
 
       {/* =========================================================================
-         3. FULL CATEGORIZED SERVICES CATALOG (FULL-FILL THE PAGES WITH CONTENT!)
+         3. FULL CATEGORIZED SERVICES CATALOG
          All 29 Official Services Categorized with Search & Instant Booking
          ========================================================================= */}
       <div className="w-full">
@@ -610,7 +692,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
               onClick={() => setActiveCategoryFilter('all')}
               className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeCategoryFilter === 'all'
-                  ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_15px_rgba(212,175,55,0.35)]'
+                  ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_15px_rgba(212,175,55,0.35)] font-bold'
                   : 'bg-[#0E1628] text-gray-300 hover:text-white border border-white/10 hover:border-[#D4AF37]/30'
               }`}
             >
@@ -623,7 +705,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
                 onClick={() => setActiveCategoryFilter(cat.name)}
                 className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                   activeCategoryFilter === cat.name
-                    ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_15px_rgba(212,175,55,0.35)]'
+                    ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_15px_rgba(212,175,55,0.35)] font-bold'
                     : 'bg-[#0E1628] text-gray-300 hover:text-white border border-white/10 hover:border-[#D4AF37]/30'
                 }`}
               >
@@ -645,32 +727,6 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
           </div>
         </div>
 
-        {/* Selected Services Sticky Bar */}
-        {selectedServiceIds.length > 0 && (
-          <div className="sticky top-20 sm:top-24 z-30 mb-8 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#0D1527]/95 border-2 border-[#D4AF37] shadow-[0_10px_40px_rgba(212,175,55,0.3)] backdrop-blur-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-in slide-in-from-top-4 duration-300">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#D4AF37] text-[#070B14] flex items-center justify-center font-bold text-sm shrink-0">
-                {selectedServiceIds.length}
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] sm:text-xs text-gray-400 uppercase tracking-wider block truncate">
-                  Selected for VIP Booking
-                </span>
-                <span className="text-xs sm:text-sm font-semibold text-[#FFDF78] truncate block">
-                  {selectedServiceIds.length} {selectedServiceIds.length === 1 ? 'service' : 'services'} added to pass
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={onOpenBooking}
-              className="w-full sm:w-auto px-5 sm:px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md text-center"
-            >
-              Continue to Slot Selection
-            </button>
-          </div>
-        )}
-
         {/* Categorized Services List */}
         <div className="space-y-12">
           {groupedServices.map((group) => (
@@ -679,7 +735,7 @@ export const Services3DWallSection: React.FC<Services3DWallSectionProps> = ({
               <div className="flex items-center gap-3 border-b border-[#D4AF37]/30 pb-3">
                 <div className="w-3 h-3 rounded-full bg-[#D4AF37] shadow-[0_0_12px_#D4AF37]" />
                 <h3 className="font-['Cinzel'] text-xl sm:text-2xl font-bold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-[#FFF5D6] via-[#FFDF78] to-[#D4AF37]">
-                  CATEGORY: {group.category}
+                  {group.category}
                 </h3>
               </div>
 

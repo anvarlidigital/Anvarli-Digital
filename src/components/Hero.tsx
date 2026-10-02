@@ -6,6 +6,7 @@ import { Calendar, ChevronRight, Compass, Facebook, Instagram, MessageCircle, Sh
 interface HeroProps {
   onOpenBooking: () => void;
   onExploreServices: () => void;
+  onOpenRitualMatcher?: () => void;
   onSelectStation?: (stationName: string) => void;
   liteMode?: boolean;
 }
@@ -13,6 +14,7 @@ interface HeroProps {
 export const Hero: React.FC<HeroProps> = ({
   onOpenBooking,
   onExploreServices,
+  onOpenRitualMatcher = () => {},
   onSelectStation = () => {},
   liteMode = false,
 }) => {
@@ -91,10 +93,18 @@ export const Hero: React.FC<HeroProps> = ({
           </a>
 
           <button
+            onClick={onOpenRitualMatcher}
+            className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-xl bg-[#0E1628]/90 hover:bg-[#15233E] border border-[#D4AF37]/40 text-[#FFDF78] font-semibold text-xs sm:text-sm tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
+            <span>Ritual Matcher Quiz</span>
+          </button>
+
+          <button
             onClick={onExploreServices}
             className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white font-medium text-xs sm:text-sm transition-all cursor-pointer"
           >
-            Explore Services & Menu
+            Explore 3D Walls & Menu
           </button>
         </div>
 

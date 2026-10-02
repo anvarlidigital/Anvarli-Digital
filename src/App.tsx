@@ -42,6 +42,9 @@ import { AdminPanel } from './components/AdminPanel';
 import { OtpDevToast } from './components/OtpDevToast';
 import { MenuFlyerModal } from './components/MenuFlyerModal';
 import { Services3DWallSection } from './components/Services3DWallSection';
+import { SalonLiveRadar } from './components/SalonLiveRadar';
+import { RitualMatcherModal } from './components/RitualMatcherModal';
+import { FloatingConciergeBar } from './components/FloatingConciergeBar';
 
 function MainApp() {
   const { profile } = useAuth();
@@ -79,6 +82,7 @@ function MainApp() {
   const [authInitialMode, setAuthInitialMode] = useState<'signin' | 'signup'>('signin');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [flyerModalOpen, setFlyerModalOpen] = useState(false);
+  const [ritualMatcherOpen, setRitualMatcherOpen] = useState(false);
   const [bookingSuccessNote, setBookingSuccessNote] = useState<BookingItem | null>(null);
 
   // Auto dismiss booking success note after 15 seconds
@@ -239,6 +243,10 @@ function MainApp() {
     }
   };
 
+  const selectedServicesList = React.useMemo(() => {
+    return services.filter((s) => selectedServiceIds.includes(s.id));
+  }, [services, selectedServiceIds]);
+
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
     setAuthInitialMode(mode);
     setAuthModalOpen(true);
@@ -268,6 +276,7 @@ function MainApp() {
           onOpenAuth={handleOpenAuth}
           onOpenDashboard={() => setDashboardOpen(true)}
           onNavigateAdmin={() => setAdminPanelOpen(true)}
+          onOpenRitualMatcher={() => setRitualMatcherOpen(true)}
           liteMode={liteMode}
           onToggleLiteMode={() => setLiteMode(!liteMode)}
         />
@@ -279,6 +288,7 @@ function MainApp() {
             const el = document.getElementById('services');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
+          onOpenRitualMatcher={() => setRitualMatcherOpen(true)}
           liteMode={liteMode}
           onSelectStation={() => {
             setBookingModalOpen(true);
@@ -292,6 +302,12 @@ function MainApp() {
           onViewFlyer={() => setFlyerModalOpen(true)}
         />
 
+        {/* 2.5 Real-Time Salon Floor Demand & Slot Radar */}
+        <SalonLiveRadar
+          settings={settings}
+          onOpenBooking={() => setBookingModalOpen(true)}
+        />
+
         {/* 3. Services 3D Throne Wall Experience & Full Catalog
             Features the 3D Royal Stylist Throne in background & 3D scrolling walls for services */}
         <Services3DWallSection
@@ -300,11 +316,12 @@ function MainApp() {
           selectedServiceIds={selectedServiceIds}
           onToggleService={handleToggleService}
           onOpenBooking={() => setBookingModalOpen(true)}
+          onOpenRitualMatcher={() => setRitualMatcherOpen(true)}
           liteMode={liteMode}
         />
 
         {/* 4. Interactive Before & After Transformation Drag Slider (Kept Intact) */}
-        <BeforeAfterSlider />
+        <BeforeAfterSlider onOpenBooking={() => setBookingModalOpen(true)} />
 
         {/* 5. 3D Visual Gallery Carousel (Photos & Videos - Kept Intact) */}
         <GallerySection galleryItems={galleryItems} />
@@ -335,11 +352,30 @@ function MainApp() {
 
         {/* Floating WhatsApp Quick Action Button */}
         <FloatingWhatsApp />
+
+        {/* Floating Luxury Concierge Cart Bar when services are selected */}
+        <FloatingConciergeBar
+          selectedServices={selectedServicesList}
+          onOpenBooking={() => setBookingModalOpen(true)}
+          onClearSelection={() => setSelectedServiceIds([])}
+          onRemoveService={(id) =>
+            setSelectedServiceIds(selectedServiceIds.filter((sid) => sid !== id))
+          }
+        />
       </div>
 
       {/* =========================================================================
          MODALS & INTERACTIVE DRAWERS
          ========================================================================= */}
+
+      {/* Bespoke Styling Ritual Matcher Diagnostic Modal */}
+      <RitualMatcherModal
+        isOpen={ritualMatcherOpen}
+        onClose={() => setRitualMatcherOpen(false)}
+        services={services}
+        onSelectServices={(picked) => setSelectedServiceIds(picked.map((p) => p.id))}
+        onOpenBooking={() => setBookingModalOpen(true)}
+      />
 
       {/* Booking System Modal */}
       <BookingModal

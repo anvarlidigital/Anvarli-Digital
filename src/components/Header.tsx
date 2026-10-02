@@ -24,6 +24,7 @@ interface HeaderProps {
   onNavigateAdmin: () => void;
   liteMode: boolean;
   onToggleLiteMode: () => void;
+  onOpenRitualMatcher?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateAdmin,
   liteMode,
   onToggleLiteMode,
+  onOpenRitualMatcher = () => {},
 }) => {
   const { profile, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -134,12 +136,19 @@ export const Header: React.FC<HeaderProps> = ({
         </a>
 
         {/* Desktop Navigation Links (>= lg) */}
-        <nav className="hidden lg:flex items-center gap-5 xl:gap-6 text-xs font-semibold uppercase tracking-wider text-[#A5B7D1]">
+        <nav className="hidden lg:flex items-center gap-4 xl:gap-5 text-xs font-semibold uppercase tracking-wider text-[#A5B7D1]">
           <button
             onClick={() => scrollToSection('services')}
             className="hover:text-[#FFDF78] transition-colors"
           >
-            Services & Prices
+            Services & 3D Walls
+          </button>
+          <button
+            onClick={onOpenRitualMatcher}
+            className="text-[#FFDF78] hover:text-white transition-colors flex items-center gap-1 font-bold"
+          >
+            <Sparkles className="w-3 h-3 text-[#D4AF37]" />
+            <span>Ritual Matcher</span>
           </button>
           <button
             onClick={() => scrollToSection('gallery')}
@@ -163,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => scrollToSection('packages')}
             className="hover:text-[#FFDF78] transition-colors"
           >
-            Curated Packages
+            Packages
           </button>
           <button
             onClick={() => scrollToSection('location')}
@@ -279,7 +288,13 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => scrollToSection('services')}
               className="p-3 rounded-xl bg-[#0E1628] text-left text-[#C8D6EC] hover:text-white hover:bg-[#142038] border border-white/5"
             >
-              Services & Menu
+              Services & 3D Walls
+            </button>
+            <button
+              onClick={() => { setMobileMenuOpen(false); onOpenRitualMatcher(); }}
+              className="p-3 rounded-xl bg-[#D4AF37]/15 text-left text-[#FFDF78] hover:text-white hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 font-bold"
+            >
+              Ritual Matcher Quiz
             </button>
             <button
               onClick={() => scrollToSection('gallery')}

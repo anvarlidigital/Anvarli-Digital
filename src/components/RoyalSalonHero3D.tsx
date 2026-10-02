@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Float, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
@@ -115,8 +115,8 @@ function RoyalStylistThrone({ isSelected, onClick }: { isSelected: boolean; onCl
       {/* Interactive Beacon / Aura on Base when hovered or selected */}
       {(hovered || isSelected) && (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.8, 1.1, 32]} />
-          <meshBasicMaterial color="#FFDF78" opacity={0.6} transparent />
+          <ringGeometry args={[0.8, 1.15, 32]} />
+          <meshBasicMaterial color="#FFDF78" opacity={0.65} transparent />
         </mesh>
       )}
     </group>
@@ -333,8 +333,8 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
   onOpenBooking,
   liteMode,
 }) => {
-  const [activePreset, setActivePreset] = useState<'suite' | 'chair' | 'mirror'>('suite');
-  const [lightingTheme, setLightingTheme] = useState<'gold' | 'sapphire' | 'champagne'>('gold');
+  const [activePreset, setActivePreset] = useState<'suite' | 'chair' | 'mirror' | 'spa'>('suite');
+  const [lightingTheme, setLightingTheme] = useState<'gold' | 'sapphire' | 'emerald' | 'champagne'>('gold');
   const [activeStationName, setActiveStationName] = useState<string>('Royal Stylist Throne');
 
   // Camera coordinates based on preset
@@ -343,11 +343,15 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
       ? [0, 1.8, 2.4]
       : activePreset === 'mirror'
       ? [0, 2.6, 2.8]
+      : activePreset === 'spa'
+      ? [-1.8, 2.0, 2.8]
       : [0, 2.2, 4.4];
 
   const lightColor =
     lightingTheme === 'sapphire'
       ? '#7BA9E8'
+      : lightingTheme === 'emerald'
+      ? '#6EE7B7'
       : lightingTheme === 'champagne'
       ? '#FFF3D6'
       : '#FFDF78';
@@ -359,7 +363,7 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
         {/* Badge */}
         <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full bg-[#0D1527]/90 border border-[#D4AF37]/60 text-[#FFDF78] text-[10px] sm:text-xs font-semibold backdrop-blur-md shadow-lg pointer-events-auto">
           <Crown className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-[#FFDF78] shrink-0" />
-          <span className="truncate max-w-[150px] xs:max-w-none">Interactive 3D Salon</span>
+          <span className="truncate max-w-[150px] xs:max-w-none">Interactive 3D Salon Studio</span>
         </div>
 
         {/* Camera Views & Lighting Controls */}
@@ -369,7 +373,7 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
             <button
               onClick={() => setActivePreset('suite')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                activePreset === 'suite' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300'
+                activePreset === 'suite' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300 hover:text-white'
               }`}
             >
               Suite
@@ -377,18 +381,26 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
             <button
               onClick={() => setActivePreset('chair')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                activePreset === 'chair' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300'
+                activePreset === 'chair' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300 hover:text-white'
               }`}
             >
-              VIP Throne
+              VIP Chair
             </button>
             <button
               onClick={() => setActivePreset('mirror')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                activePreset === 'mirror' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300'
+                activePreset === 'mirror' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300 hover:text-white'
               }`}
             >
               Vanity
+            </button>
+            <button
+              onClick={() => setActivePreset('spa')}
+              className={`px-2.5 py-1 rounded-lg transition-all ${
+                activePreset === 'spa' ? 'bg-[#D4AF37] text-[#070B14] font-bold' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Spa Area
             </button>
           </div>
 
@@ -396,14 +408,20 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
           <button
             onClick={() =>
               setLightingTheme((curr) =>
-                curr === 'gold' ? 'sapphire' : curr === 'sapphire' ? 'champagne' : 'gold'
+                curr === 'gold'
+                  ? 'sapphire'
+                  : curr === 'sapphire'
+                  ? 'emerald'
+                  : curr === 'emerald'
+                  ? 'champagne'
+                  : 'gold'
               )
             }
-            className="p-1.5 sm:p-2 rounded-xl bg-[#070B14]/80 border border-[#D4AF37]/40 text-[#FFDF78] text-[11px] sm:text-xs flex items-center gap-1 sm:gap-1.5 backdrop-blur-md shrink-0"
-            title="Toggle Royal Ambiance Lighting"
+            className="p-1.5 sm:px-3 sm:py-2 rounded-xl bg-[#070B14]/85 border border-[#D4AF37]/50 text-[#FFDF78] text-[11px] sm:text-xs flex items-center gap-1.5 backdrop-blur-md shrink-0 hover:bg-[#D4AF37]/20 transition-all"
+            title="Toggle Royal Ambiance Lighting: Gold / Sapphire / Emerald / Champagne"
           >
             <Flame className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden xs:inline capitalize">{lightingTheme}</span>
+            <span className="hidden xs:inline capitalize font-medium">{lightingTheme} Mood</span>
           </button>
         </div>
       </div>
@@ -417,7 +435,7 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
           className="w-full h-full cursor-grab active:cursor-grabbing"
         >
           <ambientLight intensity={0.55} />
-          <directionalLight position={[3, 8, 4]} intensity={2.0} color={lightColor} />
+          <directionalLight position={[3, 8, 4]} intensity={2.2} color={lightColor} />
           <pointLight position={[-3, 3, 2]} intensity={1.5} color="#D4AF37" />
 
           {/* Luxury Black Marble Floor with Geometric Gold Border Inlay */}
@@ -518,7 +536,7 @@ export const RoyalSalonHero3D: React.FC<RoyalSalonHero3DProps> = ({
           </span>
           <button
             onClick={onOpenBooking}
-            className="w-full sm:w-auto px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-[11px] sm:text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(212,175,55,0.4)] flex items-center justify-center gap-1.5 whitespace-nowrap"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#FFF0A5] to-[#AA7C11] text-[#070B14] font-extrabold text-[11px] sm:text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(212,175,55,0.4)] flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <Calendar className="w-3.5 h-3.5" />
             <span>Book This Station</span>

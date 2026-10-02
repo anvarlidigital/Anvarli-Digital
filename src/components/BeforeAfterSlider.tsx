@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, MoveHorizontal } from 'lucide-react';
+import { Sparkles, MoveHorizontal, Calendar, CheckCircle2, ChevronRight } from 'lucide-react';
+import { TiltCard3D } from './TiltCard3D';
 
 interface Transformation {
   id: string;
@@ -8,6 +9,8 @@ interface Transformation {
   beforeImg: string;
   afterImg: string;
   note: string;
+  duration: string;
+  serviceMatch: string;
 }
 
 const TRANSFORMATIONS: Transformation[] = [
@@ -17,7 +20,9 @@ const TRANSFORMATIONS: Transformation[] = [
     category: 'Hair Treatments',
     beforeImg: 'https://images.unsplash.com/photo-1522337660859-02fbefca4702?auto=format&fit=crop&w=1000&q=80',
     afterImg: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1000&q=80',
-    note: 'Frizz-free mirror shine lasting 6+ months'
+    note: 'Frizz-free mirror shine lasting 6+ months with organic amino therapy',
+    duration: '2.5 Hours',
+    serviceMatch: 'Nano Plastia',
   },
   {
     id: 't-2',
@@ -25,19 +30,27 @@ const TRANSFORMATIONS: Transformation[] = [
     category: 'Gents',
     beforeImg: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=1000&q=80',
     afterImg: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1000&q=80',
-    note: 'Skin fade, beard contour and gold mask'
+    note: 'Skin fade, beard contour sculpting and golden herbal rejuvenation',
+    duration: '75 Mins',
+    serviceMatch: 'Spa',
   },
   {
     id: 't-3',
-    title: 'Bridal Couture & Hair Styling',
-    category: 'Bridal',
+    title: 'Bridal Couture & Hair Sculpting',
+    category: 'Bridal & Occasion',
     beforeImg: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1000&q=80',
     afterImg: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?auto=format&fit=crop&w=1000&q=80',
-    note: 'High-definition glow & floral hair sculpting'
-  }
+    note: 'High-definition bridal luminescence & floral architectural hair styling',
+    duration: '3 Hours',
+    serviceMatch: 'Advanced Hair Cut + Spa (Any length)',
+  },
 ];
 
-export const BeforeAfterSlider: React.FC = () => {
+interface BeforeAfterSliderProps {
+  onOpenBooking?: () => void;
+}
+
+export const BeforeAfterSlider: React.FC<BeforeAfterSliderProps> = ({ onOpenBooking = () => {} }) => {
   const [activeIdx, setActiveIdx] = useState(0);
   const [sliderPos, setSliderPos] = useState(50); // percentage 0 - 100
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,15 +97,15 @@ export const BeforeAfterSlider: React.FC = () => {
   return (
     <section className="py-12 sm:py-16 px-3 sm:px-6 lg:px-8 max-w-6xl mx-auto">
       <div className="text-center mb-8 sm:mb-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/35 text-[#FFDF78] text-xs font-semibold uppercase tracking-widest mb-2">
-          <Sparkles className="w-3.5 h-3.5" />
-          Dramatic Transformations
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/35 text-[#FFDF78] text-xs font-semibold uppercase tracking-widest mb-3 backdrop-blur-md">
+          <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
+          <span>Dramatic Transformations</span>
         </div>
-        <h2 className="font-['Cinzel'] text-2xl xs:text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#FFF5D6] via-[#FFDF78] to-[#AA7C11]">
+        <h2 className="font-['Cinzel'] text-2xl xs:text-3xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#FFF5D6] via-[#FFDF78] to-[#AA7C11]">
           Before & After Mastery
         </h2>
-        <p className="font-['Playfair_Display'] italic text-xs sm:text-base text-[#D4C8B0] mt-1">
-          Drag or tap to reveal the bespoke salon difference
+        <p className="font-['Playfair_Display'] italic text-sm sm:text-lg text-[#D4C8B0] mt-1.5">
+          Drag split handle or tap anywhere to reveal the bespoke salon difference
         </p>
       </div>
 
@@ -102,9 +115,9 @@ export const BeforeAfterSlider: React.FC = () => {
           <button
             key={t.id}
             onClick={() => { setActiveIdx(i); setSliderPos(50); }}
-            className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
+            className={`px-4 py-2.5 rounded-2xl text-xs font-semibold whitespace-nowrap transition-all shrink-0 cursor-pointer ${
               activeIdx === i
-                ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_15px_rgba(212,175,55,0.3)] font-bold'
+                ? 'bg-[#D4AF37] text-[#070B14] shadow-[0_0_20px_rgba(212,175,55,0.4)] font-bold'
                 : 'bg-[#0E1628] text-gray-300 hover:text-white border border-white/10'
             }`}
           >
@@ -113,63 +126,78 @@ export const BeforeAfterSlider: React.FC = () => {
         ))}
       </div>
 
-      {/* Interactive Drag Comparison Frame */}
-      <div
-        ref={containerRef}
-        onClick={handleClick}
-        onMouseDown={() => setIsDragging(true)}
-        onMouseUp={() => setIsDragging(false)}
-        onMouseLeave={() => setIsDragging(false)}
-        onMouseMove={handleMouseMove}
-        onTouchMove={handleTouchMove}
-        className="relative w-full max-w-4xl mx-auto h-[260px] xs:h-[320px] sm:h-[420px] md:h-[480px] rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-[#D4AF37]/50 shadow-[0_0_50px_rgba(0,0,0,0.8)] cursor-ew-resize select-none touch-none"
-      >
-        {/* After Image (Background full) */}
-        <img
-          src={activeItem.afterImg}
-          alt="After Transformation"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-
-        {/* Before Image (Clipped overlay) */}
+      {/* Interactive Drag Comparison Frame inside 3D Tilt Card */}
+      <TiltCard3D maxTilt={4} scale={1.01} className="w-full max-w-4xl mx-auto">
         <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ width: `${sliderPos}%` }}
+          ref={containerRef}
+          onClick={handleClick}
+          onMouseDown={() => setIsDragging(true)}
+          onMouseUp={() => setIsDragging(false)}
+          onMouseLeave={() => setIsDragging(false)}
+          onMouseMove={handleMouseMove}
+          onTouchMove={handleTouchMove}
+          className="relative w-full h-[270px] xs:h-[330px] sm:h-[440px] md:h-[500px] rounded-3xl overflow-hidden border-2 border-[#D4AF37]/60 shadow-[0_20px_70px_rgba(0,0,0,0.85)] cursor-ew-resize select-none touch-none bg-[#070B14]"
         >
+          {/* After Image (Background full) */}
           <img
-            src={activeItem.beforeImg}
-            alt="Before Transformation"
-            className="absolute inset-0 h-full object-cover max-w-none filter brightness-90"
-            style={{ width: `${containerWidth}px` }}
+            src={activeItem.afterImg}
+            alt="After Transformation"
+            className="absolute inset-0 w-full h-full object-cover filter brightness-105"
           />
-        </div>
 
-        {/* Badges on left & right */}
-        <div className="absolute top-3 sm:top-4 left-3 sm:left-4 z-20 px-2.5 sm:px-3 py-1 rounded-lg bg-[#070B14]/85 backdrop-blur-md border border-white/20 text-[10px] sm:text-xs font-mono text-gray-300">
-          BEFORE
-        </div>
-        <div className="absolute top-3 sm:top-4 right-3 sm:right-4 z-20 px-2.5 sm:px-3 py-1 rounded-lg bg-[#D4AF37]/90 backdrop-blur-md border border-[#FFDF78] text-[10px] sm:text-xs font-mono font-bold text-[#070B14]">
-          AFTER
-        </div>
+          {/* Before Image (Clipped overlay) */}
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ width: `${sliderPos}%` }}
+          >
+            <img
+              src={activeItem.beforeImg}
+              alt="Before Transformation"
+              className="absolute inset-0 h-full object-cover max-w-none filter brightness-90 saturate-75"
+              style={{ width: `${containerWidth}px` }}
+            />
+          </div>
 
-        {/* Center Split Divider Bar */}
-        <div
-          className="absolute top-0 bottom-0 z-20 w-1 bg-[#D4AF37] shadow-[0_0_15px_#D4AF37]"
-          style={{ left: `${sliderPos}%` }}
-        >
-          {/* Circular Grab Handle */}
-          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#070B14] border-2 border-[#D4AF37] flex items-center justify-center text-[#FFDF78] shadow-[0_0_20px_rgba(212,175,55,0.6)]">
-            <MoveHorizontal className="w-4 h-4 sm:w-5 sm:h-5" />
+          {/* Badges on left & right */}
+          <div className="absolute top-3 sm:top-4 left-3 sm:left-4 z-20 px-3 py-1 rounded-xl bg-[#070B14]/85 backdrop-blur-md border border-white/20 text-[10px] sm:text-xs font-mono text-gray-300">
+            BEFORE SALON
+          </div>
+          <div className="absolute top-3 sm:top-4 right-3 sm:right-4 z-20 px-3 py-1 rounded-xl bg-[#D4AF37] backdrop-blur-md border border-[#FFDF78] text-[10px] sm:text-xs font-mono font-black text-[#070B14] shadow-lg">
+            AFTER &bull; LUXURY RESULT
+          </div>
+
+          {/* Center Split Divider Bar */}
+          <div
+            className="absolute top-0 bottom-0 z-20 w-1 bg-[#FFDF78] shadow-[0_0_20px_#D4AF37]"
+            style={{ left: `${sliderPos}%` }}
+          >
+            {/* Circular Grab Handle */}
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[#070B14] border-2 border-[#D4AF37] flex items-center justify-center text-[#FFDF78] shadow-[0_0_25px_rgba(212,175,55,0.7)] group">
+              <MoveHorizontal className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+          </div>
+
+          {/* Bottom Note & Quick Book Callout */}
+          <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-2.5 p-3 rounded-2xl bg-[#070B14]/90 border border-[#D4AF37]/50 backdrop-blur-xl pointer-events-auto">
+            <div className="text-left min-w-0">
+              <span className="text-[10px] font-mono text-[#D4AF37] uppercase tracking-wider block font-semibold">
+                {activeItem.category} &bull; {activeItem.duration}
+              </span>
+              <p className="text-xs sm:text-sm text-white font-medium truncate">
+                {activeItem.note}
+              </p>
+            </div>
+
+            <button
+              onClick={onOpenBooking}
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-[#070B14] font-bold text-xs uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Get This Transformation</span>
+            </button>
           </div>
         </div>
-
-        {/* Bottom Note */}
-        <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex justify-center pointer-events-none">
-          <div className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-[#070B14]/90 border border-[#D4AF37]/40 text-[11px] sm:text-xs text-[#FFDF78] backdrop-blur-md text-center max-w-md truncate">
-            {activeItem.note}
-          </div>
-        </div>
-      </div>
+      </TiltCard3D>
     </section>
   );
 };
